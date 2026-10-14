@@ -296,6 +296,14 @@ class RuleContext:
         name = self.policy.address_book.get(a) or self.sim.labels.get(a)
         return f"{a} ({name})" if name else a
 
+    def untrusted(self, address: str, what: str = "spender") -> str:
+        """``untrusted spender 0x..``; says so when the address is labelled but not trusted."""
+        a = address.lower()
+        name = self.policy.address_book.get(a) or self.sim.labels.get(a)
+        if name:
+            return f"{what} {a} (labelled '{name}', but not in your trusted lists)"
+        return f"unknown {what} {a}"
+
 
 def is_unlimited(amount: int) -> bool:
     return amount >= UNLIMITED_THRESHOLD
@@ -360,10 +368,10 @@ def _approvals(ctx: RuleContext) -> None:
                          f"Unlimited approval to trusted spender {ctx.label(spender)}", data)
             else:
                 ctx.emit("UNLIMITED_APPROVAL_UNKNOWN",
-                         f"Unlimited approval to unknown spender {ctx.label(spender)}", data)
+                         f"Unlimited approval to {ctx.untrusted(spender)}", data)
         elif not pol.is_trusted_spender(spender):
             ctx.emit("APPROVAL_UNKNOWN_SPENDER",
-                     f"Bounded approval to unknown spender {ctx.label(spender)}", data)
+                     f"Bounded approval to {ctx.untrusted(spender)}", data)
         if a.via == "permit2" and a.amount > 0 and a.expiration is not None:
             _far_deadline(ctx, a.expiration, "Permit2 allowance", {**data, "expiration": a.expiration})
 
@@ -384,7 +392,7 @@ def _operators(ctx: RuleContext) -> None:
                      f"Collection-wide approval to trusted operator {ctx.label(op)}", data)
         else:
             ctx.emit("OPERATOR_APPROVAL_UNKNOWN",
-                     f"setApprovalForAll grants unknown operator {ctx.label(op)} control of every "
+                     f"setApprovalForAll grants {ctx.untrusted(op, 'operator')} control of every "
                      f"token in {o.token}", data)
 
 
@@ -406,10 +414,10 @@ def _permits(ctx: RuleContext) -> None:
                          f"Unlimited {p.kind} permit to trusted {ctx.label(spender)}", data)
             else:
                 ctx.emit("PERMIT_UNLIMITED_UNKNOWN",
-                         f"Unlimited {p.kind} permit to unknown spender {ctx.label(spender)}", data)
+                         f"Unlimited {p.kind} permit to {ctx.untrusted(spender)}", data)
         elif not pol.is_trusted_spender(spender):
             ctx.emit("PERMIT_UNKNOWN_SPENDER",
-                     f"{p.kind} permit of {p.amount} to unknown spender {ctx.label(spender)}", data)
+                     f"{p.kind} permit of {p.amount} to {ctx.untrusted(spender)}", data)
         _far_deadline(ctx, p.deadline, "Permit", data)
 
 

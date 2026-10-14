@@ -14,6 +14,8 @@ that these blocks would have corrected, and the numbers cannot be typed by hand.
     legacy-eval      the original 122-case set
     sweeps           threshold sweeps (dev vs held-out)
     injection-table  ``evals/injection_eval.py --markdown``
+    cli-example      real output of `txwarden review examples/approve_unlimited.json --no-llm`
+    cli-bundle       real output of `txwarden batch examples/bundle_approve_then_pull.json`
     test-count       number of collected tests (pytest --collect-only)
     coverage         from coverage.json if present (pytest --cov --cov-report=json)
 """
@@ -82,6 +84,33 @@ def injection_table() -> str:
     return inj.markdown(total, by_vector, by_attack)
 
 
+def cli_output(*argv: str) -> str:
+    import contextlib
+
+    from txwarden.cli import main as cli_main
+
+    buf, cwd = io.StringIO(), Path.cwd()
+    err = io.StringIO()
+    try:
+        import os
+
+        os.chdir(ROOT)
+        with contextlib.redirect_stderr(err):
+            code = cli_main(list(argv), buf)
+    finally:
+        os.chdir(cwd)
+    shown = " ".join(argv)
+    return f"```text\n$ txwarden {shown}\n{buf.getvalue().rstrip()}\n(exit code {code})\n```"
+
+
+def cli_example() -> str:
+    return cli_output("review", "examples/approve_unlimited.json", "--no-llm")
+
+
+def cli_bundle() -> str:
+    return cli_output("batch", "examples/bundle_approve_then_pull.json")
+
+
 def rule_counts() -> str:
     c = {v: sum(1 for r in RULES.values() if r.verdict.value == v) for v in ("BLOCK", "WARN", "ALLOW")}
     return (f"**{len(RULES)} rules**: {c['BLOCK']} CRITICAL (BLOCK), {c['WARN']} HIGH (WARN), "
@@ -117,6 +146,7 @@ def coverage() -> str | None:
 
 
 BLOCKS = {"rules-table": markdown_summary_table, "rule-counts": rule_counts,
+          "cli-example": cli_example, "cli-bundle": cli_bundle,
           "eval-table": eval_table, "legacy-eval": legacy_eval, "sweeps": sweeps,
           "injection-table": injection_table, "test-count": test_count, "coverage": coverage}
 # the coverage block needs a prior `pytest --cov --cov-report=json`; it is not checked in --check
@@ -134,7 +164,7 @@ def render(text: str, only_check: bool) -> tuple[str, list[str]]:
         body = fn()
         if body is None:  # nothing to say yet: keep what is there
             continue
-        new = pat.sub(lambda m: m.group(1) + body + m.group(3), text)
+        new = pat.sub(lambda m, body=body: m.group(1) + body + m.group(3), text)
         if new != text:
             changed.append(name)
         text = new

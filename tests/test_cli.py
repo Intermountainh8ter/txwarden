@@ -290,3 +290,17 @@ def test_bad_transaction_input_says_what_is_wrong(tmp_path, capsys):
     f = write(tmp_path, "tx.json", {"sender": U})
     assert main(["review", f, "--no-llm"], io.StringIO()) == 3
     assert "transaction JSON is missing to" in capsys.readouterr().err
+
+
+def test_labelled_but_untrusted_address_gets_an_explaining_message_and_hint(tmp_path):
+    f = write(tmp_path, "tx.json", {"sender": U, "to": TOKEN, "data": approve_calldata(ROUTER, 5)})
+    code, out = run("review", f, "--no-llm")
+    assert code == 2
+    assert "labelled 'Uniswap V2 Router02', but not in your trusted lists" in out
+    assert "Hint (APPROVAL_UNKNOWN_SPENDER)" in out and "--trust-well-known" in out
+    code, out = run("review", f, "--no-llm", "--trust-well-known")
+    assert code == 0 and "Hint (APPROVAL_UNKNOWN_SPENDER)" not in out
+    unlabelled = write(tmp_path, "t2.json", {"sender": U, "to": TOKEN,
+                                             "data": approve_calldata(STRANGER, 5)})
+    assert "unknown spender 0x3333" in run("review", unlabelled, "--no-llm")[1]
+    assert "built-in address book" not in run("review", unlabelled, "--no-llm")[1]
