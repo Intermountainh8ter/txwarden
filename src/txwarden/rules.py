@@ -84,8 +84,9 @@ _r("CALL_TO_NON_CONTRACT", HIGH, "target", "Calldata sent to an address with no 
 # --------------------------------------------------------------------------- approvals
 
 _r("UNLIMITED_APPROVAL_UNKNOWN", CRIT, "approval", "Unlimited approval to unknown spender",
-   "An ERC-20 approval of 2**255 or more, or Permit2's uint160 maximum, to a spender that is not "
-   "in `trusted_spenders`.",
+   "An ERC-20 or Permit2 approval of 2**128 raw units or more (larger than any real token's total "
+   "supply, so effectively unlimited; covers uint256/uint160/uint128 maxima) to a spender that is "
+   "not in `trusted_spenders`.",
    "This is the primary drainer primitive: once granted, the spender can move the whole balance "
    "at any time, including long after you have forgotten the site. Approve an exact amount instead "
    "or trust the spender explicitly after verifying it.",

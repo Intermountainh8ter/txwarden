@@ -32,9 +32,11 @@ from txwarden.risk import (
     PERMIT2_UNLIMITED,
     RULES,
     UNLIMITED,
+    UNLIMITED_THRESHOLD,
     PolicyConfig,
     assess,
     checks_for_rule,
+    is_unlimited,
 )
 
 from .helpers import EVIL, FRIEND, OTHER, ROUTER, STRANGER, TOKEN, U
@@ -292,19 +294,28 @@ def test_failed_simulation_skips_swap_math_but_still_reports_static_effects():
 
 # --------------------------------------------------------------------------- approvals
 
-def test_permit2_unlimited_is_uint160_max_not_uint255():
-    big = appr(OTHER, PERMIT2_UNLIMITED, via="permit2")
-    assert "UNLIMITED_APPROVAL_UNKNOWN" in rules_of(assess(TX, SimResult(True, approvals=[big]), POL)[1])
-    erc20_same_number = appr(OTHER, PERMIT2_UNLIMITED)
-    assert rules_of(assess(TX, SimResult(True, approvals=[erc20_same_number]), POL)[1]) == {
-        "APPROVAL_UNKNOWN_SPENDER"}
+def test_every_conventional_infinite_approval_value_is_unlimited():
+    """uint256/uint160/uint128 maxima and 2**255 all count; uint96 max (Compound-style) does not."""
+    for amount in (2**256 - 1, 2**255, PERMIT2_UNLIMITED, 2**128, 2**200):
+        for via in ("", "permit2"):
+            sim = SimResult(True, approvals=[appr(OTHER, amount, via=via)])
+            assert rules_of(assess(TX, sim, POL)[1]) >= {"UNLIMITED_APPROVAL_UNKNOWN"}, (amount, via)
+    for amount in (2**128 - 1, 2**96 - 1, 10**30):
+        sim = SimResult(True, approvals=[appr(OTHER, amount)])
+        assert rules_of(assess(TX, sim, POL)[1]) == {"APPROVAL_UNKNOWN_SPENDER"}, amount
 
 
-def test_approval_threshold_is_two_to_the_255():
-    assert "UNLIMITED_APPROVAL_UNKNOWN" in rules_of(assess(
-        TX, SimResult(True, approvals=[appr(OTHER, 2**255)]), POL)[1])
-    assert "UNLIMITED_APPROVAL_UNKNOWN" not in rules_of(assess(
-        TX, SimResult(True, approvals=[appr(OTHER, 2**255 - 1)]), POL)[1])
+def test_approval_threshold_is_two_to_the_128():
+    assert UNLIMITED_THRESHOLD == 2**128
+    assert is_unlimited(2**128) and not is_unlimited(2**128 - 1)
+
+
+def test_revoking_from_a_denylisted_spender_is_safe_and_reported_as_a_revocation():
+    sim = SimResult(True, approvals=[appr(EVIL, 0)])
+    assert assess(TX, sim, POL)[0] == Verdict.ALLOW
+    assert rules_of(assess(TX, sim, POL)[1]) == {"APPROVAL_REVOKED"}
+    permit_zero = SimResult(True, permits=[permit(EVIL, 0, NOW + DAY)], block_timestamp=NOW)
+    assert assess(TX, permit_zero, POL) == (Verdict.ALLOW, [])
 
 
 def test_trusted_lists_are_case_insensitive_and_operators_inherit_trusted_spenders():

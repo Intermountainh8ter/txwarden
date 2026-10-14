@@ -302,7 +302,8 @@ class SimResult:
             operator_approvals=[OperatorApproval(**o) for o in d.get("operator_approvals", [])],
             permits=[Permit(**p) for p in d.get("permits", [])],
             lp_events=[LPEvent(**e) for e in d.get("lp_events", [])],
-            accounts={k.lower(): AccountInfo(**v) for k, v in d.get("accounts", {}).items()},
+            accounts={k.lower(): AccountInfo(**({"address": k.lower()} | v))
+                      for k, v in d.get("accounts", {}).items()},
             honeypot=HoneypotProbe(**honeypot) if honeypot else None,
             call_tree=CallFrame.from_dict(tree) if tree else None,
             chain_id=d.get("chain_id"),

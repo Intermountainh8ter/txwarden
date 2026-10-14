@@ -47,8 +47,13 @@ __all__ = [
     "verdict_from",
 ]
 
-UNLIMITED = 2**255
-PERMIT2_UNLIMITED = 2**160 - 1
+UNLIMITED = 2**255  # the usual "max approval" value (type(uint256).max, or 2**255 in some wallets)
+PERMIT2_UNLIMITED = 2**160 - 1  # Permit2's "infinite" allowance (uint160 max)
+# Any allowance at or above this is treated as unlimited: 2**128 raw units is more than the total
+# supply of any real token (even a 1e18-supply token with 18 decimals is ~2**120), so a "bounded"
+# approval this large is as dangerous as an infinite one. Protocols use uint96/uint128/uint160
+# maxima as "infinite" for the same reason; only uint96 max stays below the line.
+UNLIMITED_THRESHOLD = 2**128
 FAR_FUTURE = 2**40  # a deadline past this is "effectively never expires" (year ~36812)
 DAY = 86_400
 
@@ -292,10 +297,8 @@ class RuleContext:
         return f"{a} ({name})" if name else a
 
 
-def is_unlimited(amount: int, via: str = "") -> bool:
-    if via == "permit2":
-        return amount >= PERMIT2_UNLIMITED
-    return amount >= UNLIMITED
+def is_unlimited(amount: int) -> bool:
+    return amount >= UNLIMITED_THRESHOLD
 
 
 # --------------------------------------------------------------------------- checks
@@ -347,11 +350,11 @@ def _approvals(ctx: RuleContext) -> None:
     for a in ctx.sim.approvals:
         spender = a.spender.lower()
         data = {"spender": spender, "token": a.token, "amount": a.amount, "via": a.via}
-        if spender in pol.denylist:
-            ctx.emit("APPROVAL_TO_DENYLISTED", f"Approval to denylisted {spender}", data)
-        elif a.amount == 0:
+        if a.amount == 0:  # revoking is good, even from a denylisted spender
             ctx.emit("APPROVAL_REVOKED", f"Allowance for {ctx.label(spender)} set to zero", data)
-        elif is_unlimited(a.amount, a.via):
+        elif spender in pol.denylist:
+            ctx.emit("APPROVAL_TO_DENYLISTED", f"Approval to denylisted {spender}", data)
+        elif is_unlimited(a.amount):
             if pol.is_trusted_spender(spender):
                 ctx.emit("UNLIMITED_APPROVAL_TRUSTED",
                          f"Unlimited approval to trusted spender {ctx.label(spender)}", data)
@@ -391,23 +394,23 @@ def _permits(ctx: RuleContext) -> None:
     pol = ctx.policy
     for p in ctx.sim.permits:
         spender = p.spender.lower()
-        via = "permit2" if p.kind == "permit2" else ""
         data = {"spender": spender, "token": p.token, "amount": p.amount, "deadline": p.deadline,
                 "kind": p.kind}
+        if p.amount == 0:  # a zero-value permit revokes; nothing to review
+            continue
         if spender in pol.denylist:
             ctx.emit("PERMIT_TO_DENYLISTED", f"Permit to denylisted {spender}", data)
-        elif is_unlimited(p.amount, via):
+        elif is_unlimited(p.amount):
             if pol.is_trusted_spender(spender):
                 ctx.emit("PERMIT_UNLIMITED_TRUSTED",
                          f"Unlimited {p.kind} permit to trusted {ctx.label(spender)}", data)
             else:
                 ctx.emit("PERMIT_UNLIMITED_UNKNOWN",
                          f"Unlimited {p.kind} permit to unknown spender {ctx.label(spender)}", data)
-        elif p.amount > 0 and not pol.is_trusted_spender(spender):
+        elif not pol.is_trusted_spender(spender):
             ctx.emit("PERMIT_UNKNOWN_SPENDER",
                      f"{p.kind} permit of {p.amount} to unknown spender {ctx.label(spender)}", data)
-        if p.amount > 0:
-            _far_deadline(ctx, p.deadline, "Permit", data)
+        _far_deadline(ctx, p.deadline, "Permit", data)
 
 
 @check("TRANSFER_TO_DENYLISTED", "TRANSFER_TO_BURN_ADDRESS", "TRANSFER_TO_TOKEN_CONTRACT",
