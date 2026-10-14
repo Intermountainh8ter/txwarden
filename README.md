@@ -1,6 +1,14 @@
 # TxWarden
 
 Pre-signature review for Ethereum transactions. TxWarden decodes what a transaction will really do,
+
+
+## For the lay reader
+
+- [docs/diagrams/explainer.svg](docs/diagrams/explainer.svg) &mdash; a one-page
+  summary in ordinary words: the question, one chart, the finding, and why it
+  matters. No background assumed.
+- [GLOSSARY.md](GLOSSARY.md) &mdash; every abbreviation this repo uses, defined.
 dry-runs it against a fork, and produces an **ALLOW / WARN / BLOCK** verdict from a deterministic
 rule engine. An optional LLM agent explains the result in plain language, but **it cannot change
 the verdict**, and the agent fails closed if it skips the assessment.
