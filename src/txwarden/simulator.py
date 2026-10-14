@@ -526,7 +526,7 @@ class AnvilSimulator:
             total = float(_uint(self._call(pool, LIQUIDITY)))
             pool_id = pool
         except (RuntimeError, AbiError, ValueError, IndexError, TypeError, KeyError):
-            pass
+            pass  # best effort: an unresolved position leaves total=None, which simulate() reports
         return LPEvent(lp.action, pool_id, float(lp.liquidity), total, "v3")
 
     # ---- honeypot probe

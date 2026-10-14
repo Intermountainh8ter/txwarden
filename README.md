@@ -235,7 +235,7 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**720 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**719 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
@@ -482,9 +482,11 @@ Please read these before depending on the verdict.
   the verdict does not depend on it.
 * **Defaults are the author's.** Thresholds are reasoned defaults, not fitted to data; the sweeps
   show how sensitive the results are.
-* **Not verified in the development environment:** the Dockerfile build, the GitHub Actions
-  workflow run, and the pre-commit hooks on a machine other than the author's. They are checked
-  for syntax and their commands were run by hand.
+* **Build and CI files were not run as such.** The test suite, linter and evals were run locally
+  on Python 3.10, 3.11, 3.12 and 3.13. No container runtime was available, so the Dockerfile was
+  not built (its install steps were replayed in a clean virtualenv); the GitHub Actions workflow
+  and the pre-commit hooks were not run by their runners (every command they invoke was run by
+  hand).
 
 ## MCP server
 
