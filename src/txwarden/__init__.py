@@ -1,16 +1,47 @@
-from .models import Approval, Finding, Severity, SimResult, Swap, Transfer, Tx, Verdict
-from .risk import PolicyConfig, assess
+"""TxWarden: deterministic pre-signature review for Ethereum transactions."""
+from .models import (
+    AccountInfo,
+    Approval,
+    CallFrame,
+    Finding,
+    HoneypotProbe,
+    Hop,
+    LPEvent,
+    OperatorApproval,
+    PathSwap,
+    Permit,
+    Severity,
+    SimResult,
+    Swap,
+    Transfer,
+    Tx,
+    V3Swap,
+    V3Tick,
+    Verdict,
+)
+from .risk import RULES, PolicyConfig, assess
 
 __all__ = [
+    "RULES",
+    "AccountInfo",
     "Approval",
+    "CallFrame",
     "Finding",
+    "HoneypotProbe",
+    "Hop",
+    "LPEvent",
+    "OperatorApproval",
+    "PathSwap",
+    "Permit",
     "PolicyConfig",
     "Severity",
     "SimResult",
     "Swap",
     "Transfer",
     "Tx",
+    "V3Swap",
+    "V3Tick",
     "Verdict",
     "assess",
 ]
-__version__ = "0.1.0"
+__version__ = "0.2.0"
