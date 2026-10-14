@@ -1,5 +1,5 @@
 flowchart TD
-    A["1. Install<br/>pip install txwarden<br/>optional: pip install 'txwarden[llm]'"]
+    A["1. Install from a checkout<br/>pip install -e .<br/>optional explanation agent: pip install -e '.[llm]'"]
     B["2. Configure txwarden.toml<br/>rpc_url, trusted_spenders, trusted_recipients,<br/>denylist, expected_chain_id"]
     C{"Fork RPC available?"}
     D["3a. Run with the chain<br/>txwarden review tx.json --config txwarden.toml --no-llm<br/>(several txs: txwarden batch bundle.json)"]

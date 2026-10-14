@@ -1,0 +1,30 @@
+# Install once:  pip install pre-commit && pre-commit install
+# All hooks run local commands, so they use the same versions as your dev environment
+# (`pip install -e ".[dev]"`) and need no network.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check
+        entry: ruff check
+        language: system
+        types: [python]
+        require_serial: true
+      - id: rules-doc-current
+        name: docs/RULES.md matches the rule registry
+        entry: python scripts/gen_rules_doc.py --check
+        language: system
+        files: ^(src/txwarden/(rules|ruledocs|risk)\.py|docs/RULES\.md|scripts/gen_rules_doc\.py)$
+        pass_filenames: false
+      - id: eval-cases-current
+        name: evals/cases.jsonl matches evals/build_cases.py
+        entry: python evals/build_cases.py --check
+        language: system
+        files: ^evals/(build_cases\.py|cases\.jsonl)$
+        pass_filenames: false
+      - id: fast-tests
+        name: pytest (fast subset)
+        entry: python -m pytest -q -x --no-cov -m "not live" tests/test_rules.py tests/test_abi.py tests/test_amm.py tests/test_amm_v3.py tests/test_agent.py
+        language: system
+        pass_filenames: false
+        files: ^(src|tests)/
