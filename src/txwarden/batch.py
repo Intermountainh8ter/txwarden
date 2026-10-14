@@ -53,7 +53,7 @@ def bundle_rules(txs: list[Tx], sims: list[SimResult], policy: PolicyConfig) -> 
 
     # BUNDLE_APPROVE_THEN_PULL: approval/permit to unknown spender, then that spender acts.
     granted: dict[str, int] = {}  # spender -> index of first grant
-    for i, (tx, sim) in enumerate(zip(txs, sims)):
+    for i, sim in enumerate(sims):
         for a in sim.approvals:
             s = a.spender.lower()
             if a.amount > 0 and not policy.is_trusted_spender(s):
@@ -84,12 +84,12 @@ def bundle_rules(txs: list[Tx], sims: list[SimResult], policy: PolicyConfig) -> 
             if e.action == "add":
                 added.setdefault(e.pool.lower(), i)
     for j, sim in enumerate(sims):
-        for e in sim.lp_events:
-            if e.action == "remove" and e.pool.lower() in added and added[e.pool.lower()] < j:
-                out.append(_finding(
-                    "BUNDLE_ADD_THEN_REMOVE_LIQUIDITY",
-                    f"tx #{added[e.pool.lower()]} adds liquidity to {e.pool}; tx #{j} removes it",
-                    {"pool": e.pool, "add_index": added[e.pool.lower()], "remove_index": j}))
+        out.extend(
+            _finding("BUNDLE_ADD_THEN_REMOVE_LIQUIDITY",
+                     f"tx #{added[e.pool.lower()]} adds liquidity to {e.pool}; tx #{j} removes it",
+                     {"pool": e.pool, "add_index": added[e.pool.lower()], "remove_index": j})
+            for e in sim.lp_events
+            if e.action == "remove" and e.pool.lower() in added and added[e.pool.lower()] < j)
 
     # BUNDLE_CUMULATIVE_DRAIN: sum of outgoing transfers per token vs the balance before.
     totals: dict[str, float] = defaultdict(float)

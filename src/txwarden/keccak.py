@@ -49,10 +49,13 @@ def _keccak_f(a: list[int]) -> None:
         a[0] ^= rc
 
 
-def keccak256(data: bytes) -> bytes:
+def _sponge(data: bytes, pad: int) -> bytes:
+    """Keccak sponge, rate 1088 bits, 256-bit output. ``pad`` is the domain byte: 0x01 for the
+    original Keccak that Ethereum uses, 0x06 for NIST SHA3-256 (kept only so tests can check the
+    permutation against ``hashlib.sha3_256`` on multi-block inputs)."""
     state = [0] * 25
     buf = bytearray(data)
-    buf.append(0x01)
+    buf.append(pad)
     while len(buf) % _RATE:
         buf.append(0)
     buf[-1] |= 0x80
@@ -62,6 +65,10 @@ def keccak256(data: bytes) -> bytes:
             state[i] ^= int.from_bytes(block[8 * i:8 * i + 8], "little")
         _keccak_f(state)
     return b"".join(lane.to_bytes(8, "little") for lane in state[:4])
+
+
+def keccak256(data: bytes) -> bytes:
+    return _sponge(data, 0x01)
 
 
 def keccak256_hex(data: bytes) -> str:

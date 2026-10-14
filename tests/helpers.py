@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any
 
 from txwarden.abi import decode, encode, encode_call
@@ -122,7 +123,7 @@ class FakeChain:
 
     def _quote(self, amount: int, path: list[str]) -> list[int]:
         amounts = [amount]
-        for a, b in zip(path, path[1:]):
+        for a, b in pairwise(path):
             p = self._pair(a, b)
             if p is None:
                 raise revert("UniswapV2Library: PAIR_NOT_FOUND")
@@ -134,7 +135,6 @@ class FakeChain:
                   ) -> str:
         to = str(call.get("to", "")).lower()
         data = str(call.get("data", "0x"))
-        sender = str(call.get("from", U)).lower()
         value = int(call.get("value", "0x0"), 16)
         sel = data[:10] if len(data) >= 10 else "0x"
         if (to, sel) in self.reverts:
@@ -163,7 +163,7 @@ class FakeChain:
             a, b = decode(["address", "address"], body)
             p = self._pair(a, b)
             return words(int(p[0], 16) if p else 0)
-        for key, (pair, r0, r1) in self.pairs.items():
+        for pair, r0, r1 in self.pairs.values():
             if to == pair and sel == "0x0902f1ac":
                 return words(r0, r1, self.timestamp)
         if to == ROUTER:
@@ -176,7 +176,7 @@ class FakeChain:
             a, b = sorted((a.lower(), b.lower()), key=lambda x: int(x, 16))
             pool = self.v3_pools.get((a, b, fee))
             return words(int(pool[0], 16) if pool else 0)
-        for (_a, _b, _fee), (pool, st) in self.v3_pools.items():
+        for pool, st in self.v3_pools.values():
             if to != pool:
                 continue
             if sel == "0x3850c7bd":

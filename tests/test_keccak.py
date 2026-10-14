@@ -1,6 +1,14 @@
+import hashlib
+
 import pytest
 
-from txwarden.keccak import is_checksum_address, keccak256, selector, to_checksum_address
+from txwarden.keccak import (
+    _sponge,
+    is_checksum_address,
+    keccak256,
+    selector,
+    to_checksum_address,
+)
 
 
 def test_empty_input_vector():
@@ -53,3 +61,20 @@ def test_non_hex_rejected():
     assert not is_checksum_address("0xzz")
     with pytest.raises(ValueError):
         to_checksum_address("hello")
+
+
+def test_quick_brown_fox_vector():
+    assert keccak256(b"The quick brown fox jumps over the lazy dog").hex() == (
+        "4d741b6f1eb29cb2a9b9911c82f56fa8d73b04959d3d9d222895df6c0b28aa15")
+
+
+def test_permutation_and_absorption_match_hashlib_sha3_on_every_block_boundary():
+    """Same sponge with SHA-3's 0x06 domain byte must equal hashlib's SHA3-256 for all lengths
+    around the 136-byte rate, which checks Keccak-f and multi-block absorption independently."""
+    for n in [*range(0, 140), 200, 271, 272, 273, 408, 1000]:
+        data = bytes((i * 7 + n) % 256 for i in range(n))
+        assert _sponge(data, 0x06) == hashlib.sha3_256(data).digest(), n
+
+
+def test_keccak_differs_from_nist_sha3():
+    assert keccak256(b"") != hashlib.sha3_256(b"").digest()

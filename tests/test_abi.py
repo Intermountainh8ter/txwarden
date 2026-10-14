@@ -134,7 +134,7 @@ def test_every_registered_selector_matches_keccak(spec):
 
 @pytest.mark.parametrize("cmd", list(UR_COMMANDS), ids=lambda c: UR_COMMANDS[c][0])
 def test_universal_router_command_tables_are_consistent(cmd):
-    name, types, names = UR_COMMANDS[cmd]
+    _name, types, names = UR_COMMANDS[cmd]
     assert len(parse_type(types).components) == len(names)
 
 
@@ -246,8 +246,9 @@ def test_decode_universal_router_execute():
         "0x" + encode(["address", "uint256"], ["0x" + "02".rjust(40, "0"), 10**18]).hex(),
         "0x" + encode(["address", "uint256", "uint256", "bytes", "bool"],
                       ["0x" + "01".rjust(40, "0"), 10**18, 5, path, False]).hex(),
-        "0x" + encode(["(((address,uint160,uint48,uint48),address,uint256),bytes)"],
-                      [[((A1, 2**160 - 1, 2**48 - 1, 0), A3, 1), "0x"]]).hex(),
+        # abi.decode(inputs, (PermitSingle, bytes)): two top-level params, NOT one wrapped tuple
+        "0x" + encode(["((address,uint160,uint48,uint48),address,uint256)", "bytes"],
+                      [((A1, 2**160 - 1, 2**48 - 1, 0), A3, 1), "0x"]).hex(),
     ]
     d = decode_call(encode_call("execute(bytes,bytes[],uint256)", ["0x0b800a", inputs, 99]))
     assert d.kind == "universal_router_execute"
@@ -306,3 +307,38 @@ def test_describe_and_to_dict():
     assert describe(d) == "Multicall [ERC-20/721 approve]"
     assert d.to_dict()["inner"][0]["kind"] == "erc20_approve"
     assert describe(decode_call("0x")) == "plain ETH transfer (no calldata)"
+
+
+def test_universal_router_permit2_permit_matches_hand_assembled_words():
+    """Golden vector built word by word from the Universal Router ABI, independent of ``encode``.
+
+    ``PERMIT2_PERMIT`` input = ``abi.encode(PermitSingle, bytes signature)``:
+    six static words for the struct, then the offset (7 * 32 = 0xe0) of the signature bytes,
+    then its length and padded contents.
+    """
+    def word(n: int) -> str:
+        return f"{n:064x}"
+
+    token, spender = "0x" + "aa" * 20, "0x" + "bb" * 20
+    sig = "ab" * 65
+    raw = "0x" + "".join([
+        word(int(token, 16)), word(2**160 - 1), word(2**48 - 1), word(7),  # PermitDetails
+        word(int(spender, 16)), word(1234),                                  # spender, sigDeadline
+        word(0xE0),                                                          # offset to signature
+        word(65), sig.ljust(192, "0"),                                       # length + 3 padded words
+    ])
+    out = decode_universal_router("0x0a", [raw])
+    assert out[0].kind == "ur_permit2_permit", out[0].error
+    ps = out[0].args["permit_single"]
+    assert ps["details"] == {"token": token, "amount": 2**160 - 1, "expiration": 2**48 - 1,
+                             "nonce": 7}
+    assert ps["spender"] == spender and ps["sig_deadline"] == 1234
+
+
+def test_universal_router_wrapped_tuple_encoding_is_rejected_not_misread():
+    """An extra leading offset word (the old, wrong test encoding) must not decode as a permit."""
+    wrapped = "0x" + encode(["(((address,uint160,uint48,uint48),address,uint256),bytes)"],
+                            [[((A1, 5, 6, 0), A3, 1), "0x"]]).hex()
+    out = decode_universal_router("0x0a", [wrapped])
+    assert out[0].kind == "malformed" and out[0].error
+    assert "permit_single" not in out[0].args

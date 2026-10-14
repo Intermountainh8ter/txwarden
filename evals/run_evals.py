@@ -39,7 +39,7 @@ def main() -> int:
             errors.append((c["id"], c["category"], c["expected"], got, [f.rule for f in findings]))
 
     n = len(cases)
-    correct = sum(conf[(l, l)] for l in LABELS)
+    correct = sum(conf[(x, x)] for x in LABELS)
     print(f"cases: {n}   accuracy: {correct / n:.3f}")
     tp = conf[("BLOCK", "BLOCK")]
     fp = sum(conf[(e, "BLOCK")] for e in LABELS if e != "BLOCK")
@@ -49,7 +49,7 @@ def main() -> int:
     unsafe_allow = sum(conf[(e, "ALLOW")] for e in ("WARN", "BLOCK"))
     print(f"unsafe ALLOW (should have warned/blocked): {unsafe_allow}")
     print("\nconfusion (rows=expected, cols=got)")
-    print("          " + "".join(f"{l:>7}" for l in LABELS))
+    print("          " + "".join(f"{x:>7}" for x in LABELS))
     for e in LABELS:
         print(f"{e:<10}" + "".join(f"{conf[(e, g)]:>7}" for g in LABELS))
     print("\nper category")

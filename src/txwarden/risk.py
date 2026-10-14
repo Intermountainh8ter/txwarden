@@ -186,134 +186,134 @@ def _r(id: str, sev: Severity, cat: str, title: str, desc: str, *config: str) ->
     RULES[id] = RuleSpec(id, sev, cat, title, desc, tuple(config))
 
 
-C, H, M, I = Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.INFO
+CRIT, HIGH, MED, INFO = Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.INFO
 
-_r("DENYLISTED_TARGET", C, "target", "Call to a denylisted contract",
+_r("DENYLISTED_TARGET", CRIT, "target", "Call to a denylisted contract",
    "The transaction's `to` address is on the user's denylist.", "denylist")
-_r("ADDRESS_LOOKALIKE", C, "target", "Address-poisoning lookalike",
+_r("ADDRESS_LOOKALIKE", CRIT, "target", "Address-poisoning lookalike",
    "A counterparty address is not in the user's books but shares its leading and trailing hex "
    "characters with one that is (or with the sender). This is the signature of address-poisoning "
    "phishing, where a truncated wallet display makes the two indistinguishable.",
    "lookalike_prefix", "lookalike_suffix", "address_book", "trusted_spenders",
    "trusted_recipients")
-_r("CHAIN_ID_MISMATCH", C, "simulation", "Chain id mismatch",
+_r("CHAIN_ID_MISMATCH", CRIT, "simulation", "Chain id mismatch",
    "The transaction's chain id differs from the chain the simulator is connected to, or from "
    "`expected_chain_id` in the policy. A signature meant for one chain must not be produced "
    "against another.", "expected_chain_id")
 
-_r("UNLIMITED_APPROVAL_UNKNOWN", C, "approval", "Unlimited approval to unknown spender",
+_r("UNLIMITED_APPROVAL_UNKNOWN", CRIT, "approval", "Unlimited approval to unknown spender",
    "An ERC-20 approval of 2**255 or more (or the uint160 maximum via Permit2) to a spender that is "
    "not in `trusted_spenders`. This is the primary drainer primitive.", "trusted_spenders")
-_r("APPROVAL_TO_DENYLISTED", C, "approval", "Approval to denylisted spender",
+_r("APPROVAL_TO_DENYLISTED", CRIT, "approval", "Approval to denylisted spender",
    "Any approval whose spender is on the denylist.", "denylist")
-_r("APPROVAL_UNKNOWN_SPENDER", H, "approval", "Bounded approval to unknown spender",
+_r("APPROVAL_UNKNOWN_SPENDER", HIGH, "approval", "Bounded approval to unknown spender",
    "A finite approval to a spender that is not in `trusted_spenders`.", "trusted_spenders")
-_r("UNLIMITED_APPROVAL_TRUSTED", M, "approval", "Unlimited approval to trusted spender",
+_r("UNLIMITED_APPROVAL_TRUSTED", MED, "approval", "Unlimited approval to trusted spender",
    "Noted for the explanation; does not change the verdict.", "trusted_spenders")
-_r("APPROVAL_REVOKED", I, "approval", "Approval set to zero", "An allowance is being revoked.")
+_r("APPROVAL_REVOKED", INFO, "approval", "Approval set to zero", "An allowance is being revoked.")
 
-_r("OPERATOR_APPROVAL_UNKNOWN", C, "operator", "setApprovalForAll to unknown operator",
+_r("OPERATOR_APPROVAL_UNKNOWN", CRIT, "operator", "setApprovalForAll to unknown operator",
    "Grants an operator control over every token of an ERC-721/1155 collection. Unknown "
    "operators are blocked outright; this is how NFT drainers work.", "trusted_operators",
    "trusted_spenders")
-_r("OPERATOR_APPROVAL_DENYLISTED", C, "operator", "setApprovalForAll to denylisted operator",
+_r("OPERATOR_APPROVAL_DENYLISTED", CRIT, "operator", "setApprovalForAll to denylisted operator",
    "The operator is on the denylist.", "denylist")
-_r("OPERATOR_APPROVAL_TRUSTED", M, "operator", "setApprovalForAll to trusted operator",
+_r("OPERATOR_APPROVAL_TRUSTED", MED, "operator", "setApprovalForAll to trusted operator",
    "Collection-wide approval to a marketplace or operator the user trusts.", "trusted_operators")
-_r("OPERATOR_APPROVAL_REVOKED", I, "operator", "Operator approval revoked",
+_r("OPERATOR_APPROVAL_REVOKED", INFO, "operator", "Operator approval revoked",
    "`setApprovalForAll(operator, false)`.")
 
-_r("PERMIT_UNLIMITED_UNKNOWN", C, "permit", "Unlimited permit to unknown spender",
+_r("PERMIT_UNLIMITED_UNKNOWN", CRIT, "permit", "Unlimited permit to unknown spender",
    "An EIP-2612, DAI or Permit2 signature granting an unlimited allowance to an unknown spender. "
    "Permits are gasless and off-chain, so a phishing site can collect one without a transaction.",
    "trusted_spenders")
-_r("PERMIT_TO_DENYLISTED", C, "permit", "Permit to denylisted spender", "", "denylist")
-_r("PERMIT_UNKNOWN_SPENDER", H, "permit", "Bounded permit to unknown spender", "",
+_r("PERMIT_TO_DENYLISTED", CRIT, "permit", "Permit to denylisted spender", "", "denylist")
+_r("PERMIT_UNKNOWN_SPENDER", HIGH, "permit", "Bounded permit to unknown spender", "",
    "trusted_spenders")
-_r("PERMIT_FAR_DEADLINE", H, "permit", "Permit deadline far in the future",
+_r("PERMIT_FAR_DEADLINE", HIGH, "permit", "Permit deadline far in the future",
    "The permit stays valid for longer than `permit_deadline_warn_s` (default 30 days) or never "
    "expires. Long-lived signatures are harvested and replayed later.", "permit_deadline_warn_s")
-_r("PERMIT_UNLIMITED_TRUSTED", M, "permit", "Unlimited permit to trusted spender", "",
+_r("PERMIT_UNLIMITED_TRUSTED", MED, "permit", "Unlimited permit to trusted spender", "",
    "trusted_spenders")
 
-_r("TRANSFER_TO_DENYLISTED", C, "transfer", "Transfer to denylisted address", "", "denylist")
-_r("NEAR_FULL_BALANCE_TO_NEW_ADDRESS", H, "transfer", "Near-full balance to unrecognised address",
+_r("TRANSFER_TO_DENYLISTED", CRIT, "transfer", "Transfer to denylisted address", "", "denylist")
+_r("NEAR_FULL_BALANCE_TO_NEW_ADDRESS", HIGH, "transfer", "Near-full balance to unrecognised address",
    "At least `drain_fraction` of the sender's balance goes to an address that is not in "
    "`trusted_recipients` or the address book.", "drain_fraction", "trusted_recipients")
-_r("TRANSFER_TO_FRESH_ADDRESS", H, "transfer", "Transfer to a never-used address",
+_r("TRANSFER_TO_FRESH_ADDRESS", HIGH, "transfer", "Transfer to a never-used address",
    "The recipient has no code, no nonce and no balance. Fresh addresses are typical of "
    "poisoning and typo'd destinations; legitimate new wallets are usually funded first.",
    "flag_fresh_recipients", "trusted_recipients")
-_r("TRANSFER_TO_UNKNOWN_CONTRACT", M, "transfer", "Token transfer to unknown contract",
+_r("TRANSFER_TO_UNKNOWN_CONTRACT", MED, "transfer", "Token transfer to unknown contract",
    "Tokens sent directly to a contract that is not in the address book are often "
    "unrecoverable. Noted, not blocked.", "flag_contract_recipients")
 
-_r("PRICE_IMPACT_EXTREME", C, "swap", "Extreme price impact",
+_r("PRICE_IMPACT_EXTREME", CRIT, "swap", "Extreme price impact",
    "Execution price is at least `impact_block_bps` worse than spot.", "impact_block_bps")
-_r("PRICE_IMPACT_HIGH", H, "swap", "High price impact", "", "impact_warn_bps")
-_r("SLIPPAGE_TOLERANCE_EXTREME", C, "swap", "Extreme slippage tolerance",
+_r("PRICE_IMPACT_HIGH", HIGH, "swap", "High price impact", "", "impact_warn_bps")
+_r("SLIPPAGE_TOLERANCE_EXTREME", CRIT, "swap", "Extreme slippage tolerance",
    "`min_out` is at least `slippage_block` below the simulated output; anything in between can "
    "be taken by a sandwich.", "slippage_block")
-_r("SLIPPAGE_TOLERANCE_LOOSE", H, "swap", "Loose slippage tolerance", "", "slippage_warn")
-_r("SANDWICH_EXPOSURE_SEVERE", C, "swap", "Severe sandwich exposure",
+_r("SLIPPAGE_TOLERANCE_LOOSE", HIGH, "swap", "Loose slippage tolerance", "", "slippage_warn")
+_r("SANDWICH_EXPOSURE_SEVERE", CRIT, "swap", "Severe sandwich exposure",
    "A searcher can extract at least `sandwich_block_bps` of the input by front- and back-running "
    "within the slippage floor (computed by bisection on the pool curve).", "sandwich_block_bps")
-_r("SANDWICH_EXPOSURE", H, "swap", "Sandwich exposure", "", "sandwich_warn_bps")
-_r("LIQUIDITY_EXHAUSTED", C, "swap", "Pool cannot fill the trade",
+_r("SANDWICH_EXPOSURE", HIGH, "swap", "Sandwich exposure", "", "sandwich_warn_bps")
+_r("LIQUIDITY_EXHAUSTED", CRIT, "swap", "Pool cannot fill the trade",
    "The Uniswap V3 pool runs out of in-range liquidity before the input is consumed.",
    "min_fill_fraction")
 
-_r("REVERT", H, "simulation", "Transaction reverts in simulation", "")
-_r("ETH_REJECTED_BY_CONTRACT", H, "simulation", "Contract rejects plain ETH",
+_r("REVERT", HIGH, "simulation", "Transaction reverts in simulation", "")
+_r("ETH_REJECTED_BY_CONTRACT", HIGH, "simulation", "Contract rejects plain ETH",
    "The call reverts and the target also reverts on a plain value transfer: it has no payable "
    "receive/fallback, so the attached ETH cannot be accepted.")
-_r("GAS_EXTREME", C, "simulation", "Extreme gas usage",
+_r("GAS_EXTREME", CRIT, "simulation", "Extreme gas usage",
    "Estimated gas exceeds `gas_block_absolute`. Looping drainers and griefing contracts burn "
    "gas to extract value from the signer.", "gas_block_absolute")
-_r("GAS_ABNORMAL", H, "simulation", "Abnormal gas usage",
+_r("GAS_ABNORMAL", HIGH, "simulation", "Abnormal gas usage",
    "Estimated gas exceeds `gas_abnormal_multiple` times what this kind of call typically costs.",
    "gas_abnormal_multiple")
 
-_r("SELFDESTRUCT_IN_TRACE", C, "trace", "SELFDESTRUCT in call tree", "")
-_r("DELEGATECALL_TO_UNKNOWN", C, "trace", "Nested delegatecall to unknown code",
+_r("SELFDESTRUCT_IN_TRACE", CRIT, "trace", "SELFDESTRUCT in call tree", "")
+_r("DELEGATECALL_TO_UNKNOWN", CRIT, "trace", "Nested delegatecall to unknown code",
    "A contract below the top level delegatecalls into code that is not in the address book or "
    "`trusted_implementations`. Delegatecall runs foreign code with the caller's storage.",
    "flag_unknown_delegatecall", "trusted_implementations", "address_book")
-_r("PROXY_DELEGATECALL_UNKNOWN_IMPL", M, "trace", "Proxy delegates to unlabelled implementation",
+_r("PROXY_DELEGATECALL_UNKNOWN_IMPL", MED, "trace", "Proxy delegates to unlabelled implementation",
    "The target itself delegatecalls to an implementation that is not labelled. Normal for "
    "proxies; noted so the implementation can be reviewed.", "flag_unknown_delegatecall")
-_r("CONTRACT_CREATION_IN_TRACE", H, "trace", "Contract created during the call",
+_r("CONTRACT_CREATION_IN_TRACE", HIGH, "trace", "Contract created during the call",
    "CREATE/CREATE2 inside a transaction the user did not describe as a deployment.",
    "flag_contract_creation")
-_r("DENYLISTED_IN_TRACE", C, "trace", "Denylisted address touched in call tree", "", "denylist")
+_r("DENYLISTED_IN_TRACE", CRIT, "trace", "Denylisted address touched in call tree", "", "denylist")
 
-_r("HONEYPOT_SELL_REVERTS", C, "honeypot", "Token can be bought but not sold",
+_r("HONEYPOT_SELL_REVERTS", CRIT, "honeypot", "Token can be bought but not sold",
    "The buy-then-sell probe succeeds on the buy and reverts on the sell, including the "
    "fee-on-transfer sell variant. Classic honeypot.")
-_r("ROUND_TRIP_LOSS_SEVERE", C, "honeypot", "Severe round-trip loss",
+_r("ROUND_TRIP_LOSS_SEVERE", CRIT, "honeypot", "Severe round-trip loss",
    "Buying then immediately selling loses at least `honeypot_loss_block` of the input: a "
    "transfer tax or rigged pool.", "honeypot_loss_block")
-_r("ROUND_TRIP_LOSS", H, "honeypot", "Round-trip loss (fee on transfer)",
+_r("ROUND_TRIP_LOSS", HIGH, "honeypot", "Round-trip loss (fee on transfer)",
    "Round trip loses at least `honeypot_loss_warn`, more than fees and impact explain.",
    "honeypot_loss_warn")
 
-_r("LP_REMOVAL_MAJORITY", C, "liquidity", "Removes the majority of a pool's liquidity",
+_r("LP_REMOVAL_MAJORITY", CRIT, "liquidity", "Removes the majority of a pool's liquidity",
    "The call withdraws at least `lp_removal_block_fraction` of the pool. Rug pulls look like "
    "this; so does closing your own single-LP pool, which a trusted recipient makes legitimate.",
    "lp_removal_block_fraction")
-_r("LP_REMOVAL_LARGE", H, "liquidity", "Removes a large share of a pool's liquidity", "",
+_r("LP_REMOVAL_LARGE", HIGH, "liquidity", "Removes a large share of a pool's liquidity", "",
    "lp_removal_warn_fraction")
 
-_r("BUNDLE_APPROVE_THEN_PULL", C, "bundle", "Approval then pull by the same unknown spender",
+_r("BUNDLE_APPROVE_THEN_PULL", CRIT, "bundle", "Approval then pull by the same unknown spender",
    "One transaction in the bundle approves an unknown spender and a later one calls that spender "
    "or lets it transferFrom the user. Drainer flows split the approval from the pull so each "
    "step looks harmless.", "trusted_spenders")
-_r("BUNDLE_ADD_THEN_REMOVE_LIQUIDITY", C, "bundle", "Add then remove liquidity in one bundle",
+_r("BUNDLE_ADD_THEN_REMOVE_LIQUIDITY", CRIT, "bundle", "Add then remove liquidity in one bundle",
    "Liquidity is added and withdrawn from the same pool within the bundle: launch-and-rug.")
-_r("BUNDLE_CUMULATIVE_DRAIN", H, "bundle", "Bundle drains the balance cumulatively",
+_r("BUNDLE_CUMULATIVE_DRAIN", HIGH, "bundle", "Bundle drains the balance cumulatively",
    "Individual transfers stay under `drain_fraction` but together they exceed it.",
    "drain_fraction")
-_r("BUNDLE_MIXED_CHAIN_IDS", C, "bundle", "Bundle mixes chain ids", "")
+_r("BUNDLE_MIXED_CHAIN_IDS", CRIT, "bundle", "Bundle mixes chain ids", "")
 
 
 def check(*rule_ids: str):

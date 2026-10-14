@@ -168,7 +168,7 @@ class MCPServer:
                                      for r in RULES.values()]}
             else:
                 raise KeyError(f"unknown tool {name}")
-        except Exception as e:  # noqa: BLE001 - reported to the client, fail closed
+        except Exception as e:  # reported to the client, fail closed
             fail: dict[str, Any] = {"error": f"{type(e).__name__}: {e}"}
             if name in ("review_transaction", "review_bundle"):
                 fail["verdict"] = Verdict.BLOCK.value  # fail closed

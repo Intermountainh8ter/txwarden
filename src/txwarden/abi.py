@@ -733,7 +733,7 @@ def _postprocess(call: DecodedCall, depth: int) -> None:
         a["calls"] = [{"target": t, "data": d} for t, d in a["calls"]]
     elif k == "multicall3_aggregate3":
         calls = []
-        for target, allow_failure, data in a["calls"]:
+        for target, _allow_failure, data in a["calls"]:
             sub = decode_call(data, depth + 1)
             sub.target = target
             calls.append(sub)

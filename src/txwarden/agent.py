@@ -160,7 +160,7 @@ class TxWardenAgent:
                 calls.append(u["name"])
                 try:
                     out = self._tool(u["name"], u.get("input"), tx, state)
-                except Exception as e:  # noqa: BLE001 - tool failure must not crash the review
+                except Exception as e:  # tool failure must not crash the review
                     out = {"error": f"{type(e).__name__}: {e}"}
                 results.append({"type": "tool_result", "tool_use_id": u.get("id", ""),
                                 "content": json.dumps(out, default=str)})

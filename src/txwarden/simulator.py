@@ -434,9 +434,7 @@ class AnvilSimulator:
             bitmap = _uint(self._call(pool, TICK_BITMAP + _word(w % (1 << 256))))
             if bitmap == 0:
                 continue
-            for bit in range(256):
-                if bitmap >> bit & 1:
-                    found.append((w * 256 + bit) * spacing)
+            found.extend((w * 256 + bit) * spacing for bit in range(256) if bitmap >> bit & 1)
         found.sort(key=lambda t: abs(t - current_tick))
         ticks = []
         for t in found[:self.options.max_ticks]:
@@ -563,7 +561,7 @@ class AnvilSimulator:
     def _trace(self, call: dict[str, Any]) -> CallFrame | None:
         raw = self._try(lambda: self.rpc("debug_traceCall", [call, "latest",
                                                               {"tracer": "callTracer"}]))
-        if not isinstance(raw, dict) or "type" not in raw and "kind" not in raw:
+        if not isinstance(raw, dict) or ("type" not in raw and "kind" not in raw):
             return None
         return self._try(lambda: CallFrame.from_dict(raw))
 

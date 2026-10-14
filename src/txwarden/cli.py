@@ -139,7 +139,7 @@ def cmd_review(a: argparse.Namespace, out: Any) -> int:
         warning = ("no RPC configured (--rpc/config): static decode only; swap, honeypot, trace "
                    "and account rules could not run")
 
-    if a.no_llm or not cfg.rpc_url and not a.fixture:
+    if a.no_llm or (not cfg.rpc_url and not a.fixture):
         sim = simulator.simulate(tx)
         verdict, findings = assess(tx, sim, policy)
         if a.json:

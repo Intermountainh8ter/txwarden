@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
-from .amm import SandwichEstimate, _bisect_frontrun
+from .amm import SandwichEstimate, optimal_sandwich
 from .models import V3Swap, V3Tick
 
 MIN_TICK = -887272
@@ -118,9 +118,11 @@ def swap_exact_in(pool: V3Pool, amount_in: float, zero_for_one: bool) -> V3SwapR
                 crossed += 1
                 idx += 1
             else:
-                new_sqrt = liq * sqrt_p / (liq + eff * sqrt_p)
-                out += liq * (sqrt_p - new_sqrt)
-                sqrt_p = new_sqrt
+                denom = liq + eff * sqrt_p
+                # L * (sqrtP - sqrtP') written without the subtraction, which loses ~1e-7 of
+                # relative precision when the trade is tiny against the pool's liquidity
+                out += eff * sqrt_p * sqrt_p * liq / denom
+                sqrt_p = liq * sqrt_p / denom
                 remaining = 0.0
         else:
             target = boundary[0] if boundary else math.inf
@@ -134,7 +136,7 @@ def swap_exact_in(pool: V3Pool, amount_in: float, zero_for_one: bool) -> V3SwapR
                 idx += 1
             else:
                 new_sqrt = sqrt_p + eff / liq
-                out += liq * (new_sqrt - sqrt_p) / (sqrt_p * new_sqrt)
+                out += eff / (sqrt_p * new_sqrt)  # == L * (sqrtP' - sqrtP) / (sqrtP * sqrtP')
                 sqrt_p = new_sqrt
                 remaining = 0.0
     remaining = max(remaining, 0.0)
@@ -171,15 +173,19 @@ def estimate_sandwich_v3(swap: V3Swap, attacker_capital_multiple: float = 10.0
     x_virt, y_virt = virtual_reserves(pool.sqrt_price, pool.liquidity)
     cap = attacker_capital_multiple * (x_virt if swap.zero_for_one else y_virt)
 
-    def run(a: float) -> tuple[float, float]:
+    def run(a: float) -> tuple[float, float, float]:
+        """(victim output, attacker proceeds, attacker input actually consumed)."""
         front = swap_exact_in(pool, a, swap.zero_for_one)
         p1 = apply(pool, front)
         victim = swap_exact_in(p1, swap.amount_in, swap.zero_for_one)
         p2 = apply(p1, victim)
         back = swap_exact_in(p2, front.amount_out, not swap.zero_for_one)
-        return victim.amount_out, back.amount_out
+        return victim.amount_out, back.amount_out, front.amount_in_consumed
 
-    a = _bisect_frontrun(lambda a: run(a)[0], swap.min_out, cap)
-    out_v, back = run(a)
-    profit = back - a
+    def net(a: float) -> float:
+        _, proceeds, spent = run(a)
+        return proceeds - spent
+
+    a, profit = optimal_sandwich(lambda a: run(a)[0], net, swap.min_out, cap)
+    out_v = run(a)[0]
     return SandwichEstimate(profit > 0, a, max(profit, 0.0), out_v, clean)

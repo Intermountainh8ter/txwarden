@@ -2,11 +2,15 @@
 
 The sandwich estimator first finds, by bisection, the largest front-run that still lets the
 victim clear ``min_out`` (the victim's output is monotonically decreasing in the attacker's
-size). The attacker's profit is concave in the front-run size, so a ternary search over
-``[0, a_max]`` then picks the profit-maximising front-run: a searcher is not obliged to use all
+size). The attacker's profit is concave in the front-run size on a constant-product curve and
+piecewise smooth across Uniswap V3 ticks, so a coarse grid followed by a ternary search around
+the best grid point picks the profit-maximising front-run: a searcher is not obliged to use all
 of the slippage room if a smaller sandwich pays better. Profit is the attacker's token_in round
 trip including pool fees. A trade whose own price push is below twice the pool fee is not
 sandwichable at any size, which the search reports as infeasible.
+
+The same search serves single-hop V2, multi-hop V2 and V3 so the three estimators agree on
+equivalent pools (a test asserts this).
 """
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ from .models import Hop, PathSwap, Swap
 
 BISECT_ITERS = 80
 SEARCH_ITERS = 60
+GRID_POINTS = 32
 
 
 def amount_out(dx: float, reserve_in: float, reserve_out: float, fee: float = 0.003) -> float:
@@ -69,10 +74,18 @@ def _bisect_frontrun(victim_out: Callable[[float], float], min_out: float, cap: 
 
 
 def _best_frontrun(profit: Callable[[float], float], a_max: float) -> float:
-    """argmax of a concave ``profit`` over [0, a_max] (ternary search), including the endpoint."""
+    """argmax of ``profit`` over [0, a_max]: grid scan, then ternary search around the best cell.
+
+    Exact for concave profit (the argmax lies in the cell neighbourhood of the best grid point);
+    for piecewise-smooth profit (V3 tick crossings) it is a robust approximation. The endpoint
+    ``a_max`` is always a candidate.
+    """
     if a_max <= 0:
         return 0.0
-    lo, hi = 0.0, a_max
+    pts = [a_max * i / GRID_POINTS for i in range(GRID_POINTS + 1)]
+    vals = [profit(a) for a in pts]
+    k = max(range(len(pts)), key=vals.__getitem__)
+    lo, hi = pts[max(k - 1, 0)], pts[min(k + 1, GRID_POINTS)]
     for _ in range(SEARCH_ITERS):
         m1 = lo + (hi - lo) / 3.0
         m2 = hi - (hi - lo) / 3.0
@@ -80,16 +93,19 @@ def _best_frontrun(profit: Callable[[float], float], a_max: float) -> float:
             lo = m1
         else:
             hi = m2
-    a = (lo + hi) / 2.0
-    return a_max if profit(a_max) >= profit(a) else a
+    refined = (lo + hi) / 2.0
+    return refined if profit(refined) > vals[k] else pts[k]
 
 
-def optimal_sandwich(victim_out: Callable[[float], float], back_run: Callable[[float], float],
+def optimal_sandwich(victim_out: Callable[[float], float], profit: Callable[[float], float],
                      min_out: float, cap: float) -> tuple[float, float]:
-    """(front-run size, profit) for the best sandwich that keeps ``victim_out >= min_out``."""
+    """(front-run size, net profit) of the best sandwich that keeps ``victim_out >= min_out``.
+
+    ``profit(a)`` is the attacker's net token_in gain for a front-run of nominal size ``a``.
+    """
     a_max = _bisect_frontrun(victim_out, min_out, cap)
-    a = _best_frontrun(lambda a: back_run(a) - a, a_max)
-    return a, back_run(a) - a
+    a = _best_frontrun(profit, a_max)
+    return a, profit(a)
 
 
 def estimate_sandwich(swap: Swap, attacker_capital_multiple: float = 10.0) -> SandwichEstimate:
@@ -112,7 +128,7 @@ def estimate_sandwich(swap: Swap, attacker_capital_multiple: float = 10.0) -> Sa
         back = amount_out(out_a, y2, x2, f)  # sell token_out back for token_in
         return out_v, back
 
-    a, profit = optimal_sandwich(lambda a: run(a)[0], lambda a: run(a)[1], swap.min_out,
+    a, profit = optimal_sandwich(lambda a: run(a)[0], lambda a: run(a)[1] - a, swap.min_out,
                                  attacker_capital_multiple * x)
     out_v = run(a)[0]
     return SandwichEstimate(profit > 0, a, max(profit, 0.0), out_v, clean)
@@ -172,8 +188,7 @@ def estimate_sandwich_path(swap: PathSwap, attacker_capital_multiple: float = 10
         back = _route(out_a, reverse)
         return out_v, back
 
-    a = _bisect_frontrun(lambda a: run(a)[0], swap.min_out,
-                         attacker_capital_multiple * swap.hops[0].reserve_in)
-    out_v, back = run(a)
-    profit = back - a
+    a, profit = optimal_sandwich(lambda a: run(a)[0], lambda a: run(a)[1] - a, swap.min_out,
+                                 attacker_capital_multiple * swap.hops[0].reserve_in)
+    out_v = run(a)[0]
     return SandwichEstimate(profit > 0, a, max(profit, 0.0), out_v, clean)
