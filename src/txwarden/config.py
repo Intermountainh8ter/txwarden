@@ -137,6 +137,22 @@ def _split_table_path(path: str) -> list[str]:
     return parts
 
 
+def _bracket_depth(s: str) -> int:
+    """Net number of unclosed ``[`` outside string literals."""
+    depth, in_str, quote = 0, False, ""
+    for ch in s:
+        if in_str:
+            if ch == quote:
+                in_str = False
+        elif ch in ("\"", "'"):
+            in_str, quote = True, ch
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+    return depth
+
+
 def parse_toml_subset(text: str) -> dict[str, Any]:
     """Parse the TOML subset used by TxWarden configs (fallback for Python 3.10)."""
     root: dict[str, Any] = {}
@@ -161,8 +177,8 @@ def parse_toml_subset(text: str) -> dict[str, Any]:
             raise ConfigError(f"cannot parse line: {line!r}")
         key = m.group(1) or m.group(2) or m.group(3)
         value = m.group(4)
-        # multi-line arrays
-        while value.count("[") > value.count("]") and i < len(lines):
+        # multi-line arrays (brackets inside strings do not count)
+        while _bracket_depth(value) > 0 and i < len(lines):
             value += " " + _strip_comment(lines[i])
             i += 1
         table[key] = _parse_value(value)

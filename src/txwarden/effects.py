@@ -159,10 +159,12 @@ def _universal_router(call: DecodedCall, tx: Tx, weth: str, eff: StaticEffects) 
                                               _ur_recipient(b["to"], tx.sender, router),
                                               int(b["amount"]), operator=router))
         elif k in ("TRANSFER", "SWEEP", "PAY_PORTION"):
-            amount_key = {"TRANSFER": "value", "SWEEP": "amount_min", "PAY_PORTION": "bips"}[k]
+            # PAY_PORTION carries basis points of the router's balance, not a token amount, so the
+            # amount is unknown statically (0); the recipient is what the risk rules care about.
+            amount = 0 if k == "PAY_PORTION" else int(a["value" if k == "TRANSFER" else "amount_min"])
             eff.transfers.append(Transfer(_lower(a["token"]), router,
                                           _ur_recipient(a["recipient"], tx.sender, router),
-                                          int(a[amount_key]), kind="erc20"))
+                                          amount, kind="erc20"))
         elif k == "WRAP_ETH":
             eff.wraps.append(("wrap", int(a["amount"])))
         elif k == "UNWRAP_WETH":

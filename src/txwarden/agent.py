@@ -119,7 +119,10 @@ class TxWardenAgent:
                 return {"error": "call simulate_transaction first"}
             v, f = assess(tx, sim, self.policy)  # model input deliberately ignored
             state["verdict"] = worst_verdict(state["verdict"], v) if state.get("verdict") else v
-            state["findings"] = f
+            # keep every finding behind the (worst-of) verdict so it is never reported without
+            # its cause, even if the model re-simulates and a later run comes back clean
+            seen = {(x.rule, x.message) for x in state.setdefault("findings", [])}
+            state["findings"].extend(x for x in f if (x.rule, x.message) not in seen)
             return {"note": UNTRUSTED_NOTE, "verdict": v.value, "findings": [x.to_dict() for x in f]}
         if name == "decode_calldata":
             call = decode_call(tx.data)

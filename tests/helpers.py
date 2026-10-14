@@ -306,3 +306,23 @@ def v3_single_calldata(token_in: str, token_out: str, fee: int, amount_in: int, 
     return encode_call(
         "exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))",
         [(token_in, token_out, fee, recipient, 2**40, amount_in, min_out, 0)])
+
+
+def set_approval_for_all_calldata(operator: str, approved: bool = True) -> str:
+    return encode_call("setApprovalForAll(address,bool)", [operator, approved])
+
+
+def permit2_permit_calldata(owner: str, token: str, spender: str, amount: int, expiration: int,
+                            sig_deadline: int = 2**40) -> str:
+    return encode_call(
+        "permit(address,((address,uint160,uint48,uint48),address,uint256),bytes)",
+        [owner, ((token, amount, expiration, 0), spender, sig_deadline), "0x" + "aa" * 65])
+
+
+def eip2612_permit_calldata(owner: str, spender: str, value: int, deadline: int) -> str:
+    return encode_call("permit(address,address,uint256,uint256,uint8,bytes32,bytes32)",
+                       [owner, spender, value, deadline, 27, "0x" + "01" * 32, "0x" + "02" * 32])
+
+
+def ur_calldata(commands: bytes, inputs: list[str], deadline: int = 2**40) -> str:
+    return encode_call("execute(bytes,bytes[],uint256)", ["0x" + commands.hex(), inputs, deadline])
