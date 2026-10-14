@@ -1,0 +1,117 @@
+{
+ "description": "approve(stranger, uint256 max) on an ERC-20. Recorded from tests/helpers.FakeChain, not a real node.",
+ "tx": {
+  "sender": "0x1111111111111111111111111111111111111111",
+  "to": "0xcccccccccccccccccccccccccccccccccccccccc",
+  "data": "0x095ea7b30000000000000000000000003333333333333333333333333333333333333333ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "value": 0,
+  "chain_id": 1
+ },
+ "records": [
+  {
+   "method": "eth_chainId",
+   "params": [],
+   "result": "0x1"
+  },
+  {
+   "method": "eth_getBlockByNumber",
+   "params": [
+    "latest",
+    false
+   ],
+   "result": {
+    "number": "0x10",
+    "timestamp": "0x6553f100"
+   }
+  },
+  {
+   "method": "eth_call",
+   "params": [
+    {
+     "from": "0x1111111111111111111111111111111111111111",
+     "to": "0xcccccccccccccccccccccccccccccccccccccccc",
+     "data": "0x095ea7b30000000000000000000000003333333333333333333333333333333333333333ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "value": "0x0"
+    },
+    "latest"
+   ],
+   "result": "0x0000000000000000000000000000000000000000000000000000000000000001"
+  },
+  {
+   "method": "eth_estimateGas",
+   "params": [
+    {
+     "from": "0x1111111111111111111111111111111111111111",
+     "to": "0xcccccccccccccccccccccccccccccccccccccccc",
+     "data": "0x095ea7b30000000000000000000000003333333333333333333333333333333333333333ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "value": "0x0"
+    }
+   ],
+   "result": "0xc350"
+  },
+  {
+   "method": "debug_traceCall",
+   "params": [
+    {
+     "from": "0x1111111111111111111111111111111111111111",
+     "to": "0xcccccccccccccccccccccccccccccccccccccccc",
+     "data": "0x095ea7b30000000000000000000000003333333333333333333333333333333333333333ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "value": "0x0"
+    },
+    "latest",
+    {
+     "tracer": "callTracer"
+    }
+   ],
+   "result": null
+  },
+  {
+   "method": "eth_getCode",
+   "params": [
+    "0x3333333333333333333333333333333333333333",
+    "latest"
+   ],
+   "result": "0x"
+  },
+  {
+   "method": "eth_getTransactionCount",
+   "params": [
+    "0x3333333333333333333333333333333333333333",
+    "latest"
+   ],
+   "result": "0x0"
+  },
+  {
+   "method": "eth_getBalance",
+   "params": [
+    "0x3333333333333333333333333333333333333333",
+    "latest"
+   ],
+   "result": "0x0"
+  },
+  {
+   "method": "eth_getCode",
+   "params": [
+    "0xcccccccccccccccccccccccccccccccccccccccc",
+    "latest"
+   ],
+   "result": "0x6080604052"
+  },
+  {
+   "method": "eth_getTransactionCount",
+   "params": [
+    "0xcccccccccccccccccccccccccccccccccccccccc",
+    "latest"
+   ],
+   "result": "0x0"
+  },
+  {
+   "method": "eth_getBalance",
+   "params": [
+    "0xcccccccccccccccccccccccccccccccccccccccc",
+    "latest"
+   ],
+   "result": "0x0"
+  }
+ ]
+}

@@ -263,6 +263,8 @@ class FakeChain:
         self.log.append((method, json.loads(json.dumps(params))))
         if method == "eth_chainId":
             return hex(self.chain_id)
+        if method == "eth_blockNumber":
+            return "0x10"
         if method == "eth_getBlockByNumber":
             return {"number": "0x10", "timestamp": hex(self.timestamp)}
         if method == "eth_call":

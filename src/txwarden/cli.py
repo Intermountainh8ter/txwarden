@@ -25,9 +25,16 @@ from .agent import TxWardenAgent
 from .batch import assess_bundle
 from .config import AppConfig, ConfigError, load_config
 from .models import Finding, SimResult, Tx, Verdict
-from .risk import RULES, assess
+from .risk import RULES, PolicyConfig, assess
 from .ruledocs import explain_dict, explain_text, rules_markdown, rules_table
-from .simulator import AnvilSimulator, FixtureSimulator, StaticSimulator
+from .simulator import (
+    AnvilSimulator,
+    FixtureSimulator,
+    RecordingTransport,
+    StaticSimulator,
+    http_transport,
+    replay_transport,
+)
 
 SUBCOMMANDS = ("review", "batch", "decode", "explain", "rules", "label", "mcp")
 
@@ -57,6 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--no-llm", action="store_true", help="deterministic findings only")
     r.add_argument("--fixture", default=None,
                    help="recorded SimResult JSON (offline review, no RPC)")
+    r.add_argument("--record", default=None, metavar="PATH",
+                   help="save the RPC session to PATH (with --rpc) so it can be replayed offline")
+    r.add_argument("--replay", default=None, metavar="PATH",
+                   help="review from an RPC session saved with --record (no network)")
     _common(r)
 
     b = sub.add_parser("batch", help="review a bundle of transactions together")
@@ -150,19 +161,34 @@ def cmd_review(a: argparse.Namespace, out: Any) -> int:
     policy = cfg.effective_policy()
     tx = Tx.from_dict(json.loads(Path(a.tx_json).read_text()))
     warning = None
+    recorder: RecordingTransport | None = None
     if a.fixture:
         raw = json.loads(Path(a.fixture).read_text())
         sim_data = raw.get(tx.data, raw) if isinstance(raw, dict) and "success" not in raw else raw
         sim = SimResult.from_dict(sim_data)
         simulator: Any = FixtureSimulator({tx.data: sim})
+    elif a.replay:
+        simulator = AnvilSimulator(transport=replay_transport(a.replay), options=cfg.simulator)
     elif cfg.rpc_url:
-        simulator = AnvilSimulator(cfg.rpc_url, options=cfg.simulator)
+        transport = http_transport(cfg.rpc_url)
+        if a.record:
+            transport = recorder = RecordingTransport(transport)
+        simulator = AnvilSimulator(transport=transport, options=cfg.simulator)
     else:
         simulator = StaticSimulator(cfg.address_book)
         warning = ("no RPC configured (--rpc/config): static decode only; swap, honeypot, trace "
                    "and account rules could not run")
+    try:
+        return _review(a, out, cfg, policy, tx, simulator, warning)
+    finally:
+        if recorder is not None:
+            recorder.save(a.record, f"txwarden {__version__} session for {tx.to}")
 
-    if a.no_llm or (not cfg.rpc_url and not a.fixture):
+
+def _review(a: argparse.Namespace, out: Any, cfg: AppConfig, policy: PolicyConfig, tx: Tx,
+            simulator: Any, warning: str | None) -> int:
+    has_backend = bool(cfg.rpc_url or a.fixture or a.replay)
+    if a.no_llm or not has_backend:
         sim = simulator.simulate(tx)
         verdict, findings = assess(tx, sim, policy)
         if a.json:

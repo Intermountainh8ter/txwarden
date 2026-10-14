@@ -629,3 +629,12 @@ def test_trace_pull_already_visible_in_calldata_is_not_double_counted():
         {"type": "CALL", "from": TOKEN, "to": TOKEN, "input": pull}]}
     r = sim_for(c).simulate(Tx(U, TOKEN, pull))
     assert len([t for t in r.transfers if t.recipient == STRANGER]) == 1
+
+
+def test_infrastructure_classification_of_rpc_errors():
+    assert RpcError("Method not found", -32601).infrastructure  # node lacks eth_call entirely
+    assert RpcError("x", 503).infrastructure and RpcError("x", 429).infrastructure
+    assert not RpcError("token does not exist", 3).infrastructure  # a revert-ish message
+    assert not RpcError("execution reverted", -32000).infrastructure
+    assert not RpcError("limit exceeded", 3, error_data("limit exceeded")).infrastructure  # decoded
+    assert RpcError("limit exceeded", -32005).infrastructure

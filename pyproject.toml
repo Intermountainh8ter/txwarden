@@ -45,6 +45,7 @@ markers = ["live: requires TXWARDEN_LIVE_RPC (skipped by default)"]
 [tool.coverage.run]
 source = ["txwarden"]
 branch = true
+omit = ["*/__main__.py"]  # three-line shim, exercised through a subprocess in test_integration.py
 
 [tool.coverage.report]
 show_missing = false

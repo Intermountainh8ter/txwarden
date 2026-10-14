@@ -125,6 +125,7 @@ class StaticSimulator:
 Transport = Callable[[str, list[Any]], Any]
 
 
+_UNSUPPORTED_HINTS = ("method not found", "unknown method", "not supported")
 _INFRA_HINTS = ("missing trie node", "header not found", "state not available",
                 "historical state", "rate limit", "limit exceeded", "too many requests",
                 "timed out", "timeout", "unauthorized", "forbidden", "invalid api key",
@@ -155,7 +156,10 @@ class RpcError(RuntimeError):
         if self.data is not None and decode_revert(self.data) is not None:
             return False
         m = self.message.lower()
-        return "revert" not in m and any(h in m for h in _INFRA_HINTS)
+        if "revert" in m:
+            return False
+        # a node that does not implement eth_call/eth_estimateGas can tell us nothing either
+        return self.code == -32601 or any(h in m for h in _INFRA_HINTS + _UNSUPPORTED_HINTS)
 
     def revert_reason(self) -> str:
         return decode_revert(self.data) or self.message
@@ -241,8 +245,9 @@ def replay_transport(path: str | Path) -> Transport:
 
     def call(method: str, params: list[Any]) -> Any:
         rec = table.get((method, json.dumps(params, sort_keys=True)))
-        if rec is None:
-            raise RpcError(f"no recorded response for {method} {params}", code=-32601)
+        if rec is None:  # not an answer from a node: nothing is known about this request
+            raise RpcError(f"no recorded response for {method} {json.dumps(params)[:200]}",
+                           code=-32601, transport=True)
         if "error" in rec:
             e = rec["error"]
             raise RpcError(e.get("message", "error"), e.get("code"), e.get("data"),
