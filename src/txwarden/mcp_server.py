@@ -5,7 +5,10 @@ Implements the handshake a Model Context Protocol client expects: ``initialize``
 
 - ``review_transaction``: deterministic review of one transaction (verdict + findings).
   The caller supplies either a recorded ``sim`` (offline) or relies on the server's RPC.
-  With neither, the result is a fail-closed BLOCK, never ALLOW.
+  With neither, calldata is decoded statically: approvals, permits and transfers are fully
+  reviewed, while swaps and liquidity removals come back WARN (``ANALYSIS_INCOMPLETE``) because
+  their pool state is unknown. An unreachable RPC is BLOCK (``SIMULATION_UNAVAILABLE``), and any
+  error raised while reviewing is reported with ``verdict: BLOCK``; nothing fails open.
 - ``review_bundle``: the same for a list of transactions with cross-transaction rules.
 - ``decode_calldata``, ``explain_rule``, ``list_rules``: helpers.
 
@@ -24,6 +27,7 @@ from .batch import assess_bundle
 from .config import AppConfig, load_config
 from .models import SimResult, Tx, Verdict
 from .risk import RULES, PolicyConfig, assess
+from .ruledocs import explain_dict
 from .simulator import AnvilSimulator, Simulator, StaticSimulator
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -158,10 +162,7 @@ class MCPServer:
                 spec = RULES.get(str(args.get("rule", "")).upper())
                 if spec is None:
                     raise KeyError(f"unknown rule {args.get('rule')}")
-                payload = {"rule": spec.id, "severity": spec.severity.name,
-                           "verdict": spec.verdict.value, "category": spec.category,
-                           "title": spec.title, "description": spec.description,
-                           "config": list(spec.config)}
+                payload = explain_dict(spec)
             elif name == "list_rules":
                 payload = {"rules": [{"rule": r.id, "severity": r.severity.name,
                                       "verdict": r.verdict.value, "title": r.title}

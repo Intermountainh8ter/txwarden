@@ -23,6 +23,7 @@ from .addressbook import AddressBook
 from .llm import LLM
 from .models import Finding, Tx, Verdict, worst_verdict
 from .risk import RULES, PolicyConfig, assess
+from .ruledocs import explain_dict
 from .simulator import Simulator
 
 SYSTEM = (
@@ -132,8 +133,7 @@ class TxWardenAgent:
             spec = RULES.get(rule)
             if spec is None:
                 return {"error": f"unknown rule {rule}"}
-            return {"rule": spec.id, "severity": spec.severity.name, "verdict": spec.verdict.value,
-                    "title": spec.title, "description": spec.description}
+            return explain_dict(spec)
         if name == "lookup_address":
             addr = str((inp or {}).get("address", "")).lower()
             label = self.book.get(addr)

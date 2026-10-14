@@ -3,7 +3,7 @@ import types
 
 import pytest
 
-from txwarden.llm import AnthropicLLM, Reply, ScriptedLLM
+from txwarden.llm import AnthropicLLM, LLMError, Reply, ScriptedLLM
 
 
 def test_scripted_llm_replays_in_order_records_calls_and_runs_out():
@@ -35,6 +35,7 @@ def test_anthropic_wrapper_uses_env_model_and_converts_blocks(monkeypatch):
     fake = types.ModuleType("anthropic")
     fake.Anthropic = lambda: types.SimpleNamespace(messages=Messages())
     monkeypatch.setitem(sys.modules, "anthropic", fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
     monkeypatch.setenv("TXWARDEN_MODEL", "my-test-model")
     llm = AnthropicLLM()
     reply = llm.create("system text", [{"role": "user", "content": "x"}], [{"name": "t"}])
@@ -45,7 +46,29 @@ def test_anthropic_wrapper_uses_env_model_and_converts_blocks(monkeypatch):
     assert AnthropicLLM().model  # falls back to the configurable default
 
 
-def test_anthropic_wrapper_without_sdk_raises_import_error(monkeypatch):
+def test_anthropic_wrapper_without_sdk_raises_llm_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "anthropic", None)  # makes `import anthropic` fail
-    with pytest.raises(ImportError):
+    with pytest.raises(LLMError, match="not installed"):
         AnthropicLLM()
+
+
+def test_anthropic_wrapper_without_api_key_raises_llm_error(monkeypatch):
+    monkeypatch.setitem(sys.modules, "anthropic", types.ModuleType("anthropic"))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    with pytest.raises(LLMError, match="ANTHROPIC_API_KEY is not set"):
+        AnthropicLLM()
+
+
+def test_anthropic_request_failures_become_llm_errors(monkeypatch):
+    class Messages:
+        def create(self, **kw):
+            raise TypeError("Could not resolve authentication method")
+
+    fake = types.ModuleType("anthropic")
+    fake.Anthropic = lambda: types.SimpleNamespace(messages=Messages())
+    monkeypatch.setitem(sys.modules, "anthropic", fake)
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "t")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(LLMError, match="TypeError: Could not resolve"):
+        AnthropicLLM().create("s", [], [])

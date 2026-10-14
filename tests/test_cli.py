@@ -8,7 +8,7 @@ from txwarden import __version__
 from txwarden.cli import main
 from txwarden.llm import Reply, ScriptedLLM
 from txwarden.models import Approval, SimResult
-from txwarden.risk import UNLIMITED
+from txwarden.risk import RULES, UNLIMITED
 
 from .helpers import (
     EVIL,
@@ -68,7 +68,7 @@ def test_review_allow_exit_code_zero_for_revoke_and_trusted_flags(tmp_path):
     assert code == 0 and "APPROVAL_REVOKED" in out
     code, out = run("review", tx_file(tmp_path, approve_calldata(OTHER, 5)), "--no-llm",
                     "--trust-spender", OTHER)
-    assert code == 0 and "(no findings)" in out
+    assert code == 0 and "[INFO] CHECKS_SKIPPED" in out and "Verdict: ALLOW" in out
 
 
 def test_review_cli_flags_feed_the_policy(tmp_path):
@@ -187,16 +187,28 @@ def test_decode_text_and_json():
 def test_explain_and_rules(capsys):
     code, out = run("explain", "unlimited_approval_unknown")
     assert code == 0 and "UNLIMITED_APPROVAL_UNKNOWN" in out and "CRITICAL" in out
-    assert "policy: trusted_spenders" in out
+    assert "Policy knobs (default):" in out and "trusted_spenders = empty" in out
+    assert "Why it matters:" in out and 'disabled_rules = ["UNLIMITED_APPROVAL_UNKNOWN"]' in out
     code, out = run("explain", "REVERT", "--json")
     spec = json.loads(out)
     assert spec["rule"] == "REVERT" and spec["verdict"] == "WARN" and spec["category"]
+    assert spec["docs"] and spec["config_defaults"] == {}
+    sandwich = json.loads(run("explain", "sandwich_exposure", "--json")[1])
+    assert sandwich["config_defaults"] == {"sandwich_warn_bps": 30.0}
     assert main(["explain", "NOPE"], io.StringIO()) == 3
     assert "unknown rule NOPE" in capsys.readouterr().err
     code, out = run("rules")
     assert code == 0 and "SANDWICH_EXPOSURE" in out and "BUNDLE_APPROVE_THEN_PULL" in out
+    assert f"{len(RULES)} rules." in out
     rules = json.loads(run("rules", "--json")[1])
     assert {r["rule"] for r in rules} >= {"REVERT", "HONEYPOT_SELL_REVERTS"}
+    assert len(rules) == len(RULES)
+    approvals = json.loads(run("rules", "--json", "--category", "approval")[1])
+    assert {r["category"] for r in approvals} == {"approval"} and len(approvals) == 5
+    blocks = json.loads(run("rules", "--json", "--verdict", "block")[1])
+    assert blocks and {r["verdict"] for r in blocks} == {"BLOCK"}
+    md = run("rules", "--markdown")[1]
+    assert md.startswith("# Rule reference") and "### UNLIMITED_APPROVAL_UNKNOWN" in md
 
 
 def test_label_lookup(tmp_path):
@@ -223,3 +235,41 @@ def test_mcp_subcommand_serves_stdin(monkeypatch):
     out = io.StringIO()
     assert main(["mcp"], out) == 0
     assert json.loads(out.getvalue()) == {"jsonrpc": "2.0", "id": 1, "result": {}}
+
+
+# --------------------------------------------------------------------------- degraded modes
+
+def test_unreachable_rpc_blocks_with_a_hint(tmp_path):
+    f = tx_file(tmp_path, approve_calldata(OTHER, 5))
+    code, out = run("review", f, "--no-llm", "--rpc", "http://127.0.0.1:1")
+    assert code == 2 and "Verdict: BLOCK" in out and "SIMULATION_UNAVAILABLE" in out
+    assert "Hint (SIMULATION_UNAVAILABLE)" in out and "eth_chainId" in out
+    code, out = run("review", f, "--no-llm", "--rpc", "http://127.0.0.1:1", "--json")
+    payload = json.loads(out)
+    assert code == 2 and payload["verdict"] == "BLOCK"
+    assert [x["rule"] for x in payload["findings"]] == ["SIMULATION_UNAVAILABLE"]
+
+
+def test_swap_without_rpc_warns_with_a_configure_rpc_hint(tmp_path):
+    from .helpers import v2_swap_calldata
+
+    f = write(tmp_path, "tx.json", {"sender": U, "to": ROUTER,
+                                    "data": v2_swap_calldata(10, 1, [TOKEN, OTHER])})
+    code, out = run("review", f, "--no-llm")
+    assert code == 2 and "Verdict: WARN" in out and "ANALYSIS_INCOMPLETE" in out
+    assert "Hint (ANALYSIS_INCOMPLETE)" in out and "--rpc" in out
+
+
+def test_llm_unavailable_falls_back_to_the_deterministic_verdict(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    sim = SimResult(True, approvals=[Approval(TOKEN, U, EVIL, UNLIMITED)])
+    fx = write(tmp_path, "sim.json", sim.to_dict())
+    f = tx_file(tmp_path, "0xaa")
+    code, out = run("review", f, "--fixture", fx)  # no --no-llm, but no SDK/key either
+    assert code == 2 and "Verdict: BLOCK" in out and "language model unavailable" in out
+    code, out = run("review", f, "--fixture", fx, "--json")
+    payload = json.loads(out)
+    assert code == 2 and payload["verdict"] == "BLOCK" and "language model unavailable" in payload[
+        "warning"]
+    capsys.readouterr()

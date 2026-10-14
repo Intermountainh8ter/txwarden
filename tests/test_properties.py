@@ -55,7 +55,7 @@ from txwarden.models import (
     V3Tick,
     Verdict,
 )
-from txwarden.risk import RULES, UNLIMITED, PolicyConfig, assess
+from txwarden.risk import FAIL_CLOSED_RULES, RULES, UNLIMITED, PolicyConfig, assess
 
 N = 300
 
@@ -506,7 +506,7 @@ def test_disabling_rules_never_raises_the_verdict_and_removes_only_those_rules()
     for i in range(N):
         tx, sim, pol = random_scenario(rng)
         base, base_f = assess(tx, sim, pol)
-        off = set(rng.sample(sorted(RULES), 5))
+        off = set(rng.sample(sorted(set(RULES) - FAIL_CLOSED_RULES), 5))
         looser = PolicyConfig.from_dict(pol.to_dict() | {"disabled_rules": sorted(off)})
         v, f = assess(tx, sim, looser)
         assert RANK[v] <= RANK[base], i

@@ -26,6 +26,7 @@ from .batch import assess_bundle
 from .config import AppConfig, ConfigError, load_config
 from .models import Finding, SimResult, Tx, Verdict
 from .risk import RULES, assess
+from .ruledocs import explain_dict, explain_text, rules_markdown, rules_table
 from .simulator import AnvilSimulator, FixtureSimulator, StaticSimulator
 
 SUBCOMMANDS = ("review", "batch", "decode", "explain", "rules", "label", "mcp")
@@ -72,6 +73,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     ru = sub.add_parser("rules", help="list all rules")
     ru.add_argument("--json", action="store_true")
+    ru.add_argument("--markdown", action="store_true", help="the full rule reference (docs/RULES.md)")
+    ru.add_argument("--category", default=None, help="only this category (e.g. approval, swap)")
+    ru.add_argument("--verdict", default=None, choices=["ALLOW", "WARN", "BLOCK", "allow", "warn",
+                                                        "block"], help="only rules with this verdict")
 
     la = sub.add_parser("label", help="look up an address label")
     la.add_argument("address")
@@ -118,6 +123,24 @@ def _print_findings(verdict: Verdict, findings: list[Finding], out: Any) -> None
         print("  (no findings)", file=out)
 
 
+HINTS = {
+    "SIMULATION_UNAVAILABLE": "the RPC could not be used: check --rpc / rpc_url is reachable "
+                              "(`curl -s -X POST -H 'content-type: application/json' --data "
+                              "'{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\","
+                              "\"params\":[]}' $RPC`) and not rate limited, then re-run",
+    "ANALYSIS_INCOMPLETE": "pool state is missing: pass --rpc <fork url> (or set rpc_url in the "
+                           "config) so price impact and sandwich exposure can be computed",
+    "CHAIN_ID_MISMATCH": "the transaction's chain id differs from the expected/simulated chain: "
+                         "point --rpc at the right network or fix chain_id in the tx JSON",
+}
+
+
+def _print_hints(findings: list[Finding], out: Any) -> None:
+    for rule in dict.fromkeys(f.rule for f in findings):
+        if rule in HINTS:
+            print(f"Hint ({rule}): {HINTS[rule]}", file=out)
+
+
 def _exit_code(verdict: Verdict) -> int:
     return 0 if verdict == Verdict.ALLOW else 2
 
@@ -152,19 +175,36 @@ def cmd_review(a: argparse.Namespace, out: Any) -> int:
             if sim.decoded:
                 print(f"Call: {describe(decode_call(tx.data))}", file=out)
             _print_findings(verdict, findings, out)
+            _print_hints(findings, out)
             if warning:
                 print(f"Warning: {warning}", file=out)
         return _exit_code(verdict)
 
-    from .llm import AnthropicLLM
+    from .llm import AnthropicLLM, LLMError
 
-    llm = AnthropicLLM(model=cfg.model)
-    review = TxWardenAgent(llm, simulator, policy, address_book=cfg.address_book).review(
-        tx, a.intent)
+    try:
+        llm = AnthropicLLM(model=cfg.model)
+        review = TxWardenAgent(llm, simulator, policy, address_book=cfg.address_book).review(
+            tx, a.intent)
+    except LLMError as e:
+        # the verdict never depended on the model: report it, and say why there is no explanation
+        sim = simulator.simulate(tx)
+        verdict, findings = assess(tx, sim, policy)
+        note = f"language model unavailable ({e}); deterministic verdict only"
+        if a.json:
+            print(json.dumps({"verdict": verdict.value, "findings": [f.to_dict() for f in findings],
+                              "call_kind": sim.call_kind, "decoded": sim.decoded, "warning": note},
+                             indent=2, default=str), file=out)
+        else:
+            _print_findings(verdict, findings, out)
+            _print_hints(findings, out)
+            print(f"Warning: {note}", file=out)
+        return _exit_code(verdict)
     if a.json:
         print(json.dumps(review.to_dict(), indent=2, default=str), file=out)
     else:
         _print_findings(review.verdict, review.findings, out)
+        _print_hints(review.findings, out)
         if review.explanation:
             print("\n" + review.explanation, file=out)
         if review.model_contradicts_verdict:
@@ -221,28 +261,26 @@ def cmd_explain(a: argparse.Namespace, out: Any) -> int:
         print(f"unknown rule {a.rule}. Known: {', '.join(sorted(RULES))}", file=sys.stderr)
         return 3
     if a.json:
-        print(json.dumps({"rule": spec.id, "severity": spec.severity.name,
-                          "verdict": spec.verdict.value, "category": spec.category,
-                          "title": spec.title, "description": spec.description,
-                          "config": list(spec.config)}, indent=2), file=out)
-        return 0
-    print(f"{spec.id}  [{spec.severity.name} -> {spec.verdict.value}]  ({spec.category})", file=out)
-    print(f"  {spec.title}", file=out)
-    if spec.description:
-        print(f"  {spec.description}", file=out)
-    if spec.config:
-        print(f"  policy: {', '.join(spec.config)}", file=out)
+        print(json.dumps(explain_dict(spec), indent=2), file=out)
+    else:
+        print(explain_text(spec), file=out)
     return 0
 
 
 def cmd_rules(a: argparse.Namespace, out: Any) -> int:
+    specs = [r for r in RULES.values()
+             if (not a.category or r.category == a.category)
+             and (not a.verdict or r.verdict.value == a.verdict.upper())]
+    if a.markdown:
+        print(rules_markdown(), file=out, end="")
+        return 0
     if a.json:
         print(json.dumps([{"rule": r.id, "severity": r.severity.name, "verdict": r.verdict.value,
-                           "category": r.category, "title": r.title} for r in RULES.values()],
-                         indent=2), file=out)
+                           "category": r.category, "title": r.title} for r in specs], indent=2),
+              file=out)
         return 0
-    for r in RULES.values():
-        print(f"{r.id:<36} {r.severity.name:<9} {r.verdict.value:<6} {r.title}", file=out)
+    print(rules_table(specs), file=out)
+    print(f"\n{len(specs)} rules. `txwarden explain <RULE>` for details.", file=out)
     return 0
 
 

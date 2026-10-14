@@ -1,0 +1,26 @@
+{
+ "description": "Hand-written trace of an ERC-20 approve on an upgradeable token: the proxy delegatecalls its (synthetic) implementation. Normal, reported as PROXY_DELEGATECALL_UNKNOWN_IMPL (MEDIUM) unless the implementation is trusted.",
+ "synthetic": true,
+ "tree": {
+  "type": "CALL",
+  "from": "0x1111111111111111111111111111111111111111",
+  "to": "0xc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+  "value": "0x0",
+  "gas": "0x5208",
+  "gasUsed": "0x1000",
+  "input": "0x095ea7b300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "output": "0x",
+  "calls": [
+   {
+    "type": "DELEGATECALL",
+    "from": "0xc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+    "to": "0xc2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+    "value": "0x0",
+    "gas": "0x5208",
+    "gasUsed": "0x1000",
+    "input": "0x095ea7b300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "output": "0x"
+   }
+  ]
+ }
+}

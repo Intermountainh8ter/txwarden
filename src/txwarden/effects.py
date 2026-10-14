@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .abi import UR_ADDRESS_THIS, UR_MSG_SENDER, DecodedCall
-from .models import Approval, OperatorApproval, Permit, Transfer, Tx
+from .abi import UR_ADDRESS_THIS, UR_MSG_SENDER, DecodedCall, decode_call
+from .models import Approval, CallFrame, OperatorApproval, Permit, Transfer, Tx
 
 WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
 UINT160_MAX = 2**160 - 1
@@ -52,10 +52,12 @@ class StaticEffects:
     lp: list[LPIntent] = field(default_factory=list)
     wraps: list[tuple[str, int]] = field(default_factory=list)  # ("wrap"|"unwrap", amount)
     kinds: list[str] = field(default_factory=list)
+    # who ends up with swap output / withdrawn liquidity / router-held funds (lowercase)
+    output_recipients: list[str] = field(default_factory=list)
 
     def extend(self, other: StaticEffects) -> None:
         for name in ("approvals", "operator_approvals", "permits", "transfers", "swaps", "lp",
-                     "wraps", "kinds"):
+                     "wraps", "kinds", "output_recipients"):
             getattr(self, name).extend(getattr(other, name))
 
 
@@ -130,18 +132,20 @@ def _universal_router(call: DecodedCall, tx: Tx, weth: str, eff: StaticEffects) 
             exact_in = k.endswith("_IN")
             amount_in = int(a["amount_in"] if exact_in else a["amount_in_max"])
             min_out = int(a["amount_out_min"] if exact_in else a["amount_out"])
+            recipient = _ur_recipient(a["recipient"], tx.sender, router)
             eff.swaps.append(SwapIntent("v2", path[0], path[-1], amount_in, min_out, exact_in,
-                                        path, recipient=_ur_recipient(a["recipient"], tx.sender,
-                                                                      router)))
+                                        path, recipient=recipient))
+            eff.output_recipients.append(recipient)
         elif k in ("V3_SWAP_EXACT_IN", "V3_SWAP_EXACT_OUT"):
             dec = a["path_decoded"]
             tokens = tuple(_lower(t) for t in dec["tokens"])
             exact_in = k.endswith("_IN")
             amount_in = int(a["amount_in"] if exact_in else a["amount_in_max"])
             min_out = int(a["amount_out_min"] if exact_in else a["amount_out"])
+            recipient = _ur_recipient(a["recipient"], tx.sender, router)
             eff.swaps.append(SwapIntent("v3", tokens[0], tokens[-1], amount_in, min_out, exact_in,
-                                        tokens, tuple(int(f) for f in dec["fees"]),
-                                        _ur_recipient(a["recipient"], tx.sender, router)))
+                                        tokens, tuple(int(f) for f in dec["fees"]), recipient))
+            eff.output_recipients.append(recipient)
         elif k == "PERMIT2_PERMIT":
             ps = a["permit_single"]
             eff.permits.append(_permit2_single(ps["details"], ps["spender"], tx.sender))
@@ -162,13 +166,18 @@ def _universal_router(call: DecodedCall, tx: Tx, weth: str, eff: StaticEffects) 
             # PAY_PORTION carries basis points of the router's balance, not a token amount, so the
             # amount is unknown statically (0); the recipient is what the risk rules care about.
             amount = 0 if k == "PAY_PORTION" else int(a["value" if k == "TRANSFER" else "amount_min"])
-            eff.transfers.append(Transfer(_lower(a["token"]), router,
-                                          _ur_recipient(a["recipient"], tx.sender, router),
-                                          amount, kind="erc20"))
+            recipient = _ur_recipient(a["recipient"], tx.sender, router)
+            eff.transfers.append(Transfer(_lower(a["token"]), router, recipient, amount,
+                                          kind="erc20"))
+            eff.output_recipients.append(recipient)
+        elif k in ("SWEEP_ERC721", "SWEEP_ERC1155"):
+            eff.output_recipients.append(_ur_recipient(a["recipient"], tx.sender, router))
         elif k == "WRAP_ETH":
             eff.wraps.append(("wrap", int(a["amount"])))
+            eff.output_recipients.append(_ur_recipient(a["recipient"], tx.sender, router))
         elif k == "UNWRAP_WETH":
             eff.wraps.append(("unwrap", int(a["amount_min"])))
+            eff.output_recipients.append(_ur_recipient(a["recipient"], tx.sender, router))
         elif k == "EXECUTE_SUB_PLAN":
             sub = DecodedCall(cmd.selector, "universal_router_execute", "sub plan",
                               "universal_router", inner=cmd.inner)
@@ -233,18 +242,27 @@ def extract_effects(tx: Tx, call: DecodedCall, weth: str = WETH) -> StaticEffect
         s = _v2_swap(k, a, tx, weth)
         if s:
             eff.swaps.append(s)
+            eff.output_recipients.append(s.recipient)
     elif k in ("v3_exact_input_single", "v3_exact_output_single"):
-        eff.swaps.append(_v3_single(k, a["params"], tx))
+        s = _v3_single(k, a["params"], tx)
+        eff.swaps.append(s)
+        eff.output_recipients.append(s.recipient)
     elif k in ("v3_exact_input", "v3_exact_output"):
-        eff.swaps.append(_v3_path(k, a["params"], tx))
+        s = _v3_path(k, a["params"], tx)
+        eff.swaps.append(s)
+        eff.output_recipients.append(s.recipient)
     elif k in ("v2_add_liquidity", "v2_add_liquidity_eth"):
         ta = _lower(a.get("token_a", a.get("token", "")))
         tb = _lower(a.get("token_b", weth))
         eff.lp.append(LPIntent("add", "v2", ta, tb))
+        eff.output_recipients.append(_lower(a["to"]))
     elif k.startswith("v2_remove_liquidity"):
         ta = _lower(a.get("token_a", a.get("token", "")))
         tb = _lower(a.get("token_b", weth))
         eff.lp.append(LPIntent("remove", "v2", ta, tb, int(a["liquidity"])))
+        eff.output_recipients.append(_lower(a["to"]))
+    elif k == "v3_collect":
+        eff.output_recipients.append(_lower(a["params"]["recipient"]))
     elif k == "v3_decrease_liquidity":
         p = a["params"]
         eff.lp.append(LPIntent("remove", "v3", liquidity=int(p["liquidity"]),
@@ -264,3 +282,29 @@ def extract_effects(tx: Tx, call: DecodedCall, weth: str = WETH) -> StaticEffect
     elif k == "universal_router_execute":
         _universal_router(call, tx, weth, eff)
     return eff
+
+
+def trace_transfers(tx: Tx, tree: CallFrame, weth: str = WETH) -> list[Transfer]:
+    """Token movements out of the *sender's* account that happen below the top-level call.
+
+    Calldata decoding only sees what the top-level selector says; an opaque contract (an
+    "airdrop claim", a bridge, an aggregator) can pull the user's tokens with ``transferFrom``
+    from inside the call tree. Every successful ``CALL`` frame below the root is decoded with the
+    same selector tables, and the transfers whose ``from`` is the sender are returned with
+    ``operator`` set to the frame's caller.
+    """
+    user = tx.sender.lower()
+    out: list[Transfer] = []
+    seen: set[tuple] = set()
+    for depth, frame in tree.walk():
+        if depth == 0 or frame.error or frame.kind != "CALL" or len(frame.input) < 10:
+            continue
+        sub = Tx(frame.sender, frame.to, frame.input, frame.value, tx.chain_id)
+        for t in extract_effects(sub, decode_call(frame.input), weth).transfers:
+            if t.sender.lower() != user or t.kind == "eth":
+                continue
+            key = (t.token, t.recipient, t.amount, t.token_id, t.operator)
+            if key not in seen:
+                seen.add(key)
+                out.append(t)
+    return out

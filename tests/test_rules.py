@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
+from txwarden.abi import encode_call
 from txwarden.amm import amount_out
 from txwarden.batch import assess_bundle
 from txwarden.models import (
@@ -26,6 +27,7 @@ from txwarden.models import (
     Verdict,
 )
 from txwarden.risk import (
+    FAIL_CLOSED_RULES,
     FAR_FUTURE,
     PERMIT2_UNLIMITED,
     RULES,
@@ -91,6 +93,9 @@ SCENARIOS: dict[str, Scenario] = {
         TX, SimResult(True, approvals=[appr(lookalike_of(ROUTER), 5)]), POL),
     "CHAIN_ID_MISMATCH": lambda: (Tx(U, TOKEN, chain_id=10), SimResult(True),
                                   PolicyConfig(expected_chain_id=1)),
+    "CALL_TO_NON_CONTRACT": lambda: (
+        Tx(U, OTHER, "0x095ea7b3" + "00" * 64), SimResult(True, accounts={OTHER: AccountInfo(OTHER)}),
+        POL),
     "UNLIMITED_APPROVAL_UNKNOWN": lambda: (
         TX, SimResult(True, approvals=[appr(OTHER, UNLIMITED)]), POL),
     "APPROVAL_TO_DENYLISTED": lambda: (TX, SimResult(True, approvals=[appr(EVIL, 5)]), POL),
@@ -122,6 +127,12 @@ SCENARIOS: dict[str, Scenario] = {
         TX, SimResult(True, transfers=[xfer(OTHER, 95)]), POL),
     "TRANSFER_TO_FRESH_ADDRESS": lambda: (
         TX, SimResult(True, transfers=[xfer(OTHER)], accounts={OTHER: AccountInfo(OTHER)}), POL),
+    "TRANSFER_TO_TOKEN_CONTRACT": lambda: (TX, SimResult(True, transfers=[xfer(TOKEN)]), POL),
+    "TRANSFER_TO_BURN_ADDRESS": lambda: (
+        TX, SimResult(True, transfers=[xfer("0x" + "00" * 20)]), POL),
+    "SWAP_RECIPIENT_MISMATCH": lambda: (TX, SimResult(True, output_recipients=[STRANGER]), POL),
+    "UNTRUSTED_PULL_IN_TRACE": lambda: (
+        TX, SimResult(True, transfers=[Transfer(TOKEN, U, STRANGER, 5, 100, operator=OTHER)]), POL),
     "TRANSFER_TO_UNKNOWN_CONTRACT": lambda: (
         TX, SimResult(True, transfers=[xfer(OTHER)],
                       accounts={OTHER: AccountInfo(OTHER, code_size=100)}), POL),
@@ -135,6 +146,12 @@ SCENARIOS: dict[str, Scenario] = {
     "REVERT": lambda: (TX, SimResult(False, revert_reason="EXPIRED"), POL),
     "ETH_REJECTED_BY_CONTRACT": lambda: (
         Tx(U, TOKEN, value=5), SimResult(False, revert_reason="x", eth_receive_reverts=True), POL),
+    "SIMULATION_UNAVAILABLE": lambda: (
+        TX, SimResult(False, error="cannot reach http://127.0.0.1:8545"), POL),
+    "ANALYSIS_INCOMPLETE": lambda: (
+        TX, SimResult(True, incomplete=["swap_state: no pool state without an RPC"]), POL),
+    "CHECKS_SKIPPED": lambda: (TX, SimResult(True, incomplete=["call_trace"]), POL),
+    "ENGINE_ERROR": lambda: (TX, SimResult(True, swap=Swap(None, 1.0, 5.0, 5.0)), POL),  # type: ignore[arg-type]
     "GAS_EXTREME": lambda: (TX, SimResult(True, gas_used=20_000_000), POL),
     "GAS_ABNORMAL": lambda: (TX, SimResult(True, gas_used=900_000, call_kind="erc20_approve"), POL),
     "SELFDESTRUCT_IN_TRACE": lambda: (
@@ -190,12 +207,25 @@ def test_rule_fires_with_registered_severity_and_verdict(rule):
     assert verdict == worst
 
 
-@pytest.mark.parametrize("rule", sorted(SCENARIOS))
+@pytest.mark.parametrize("rule", sorted(set(SCENARIOS) - FAIL_CLOSED_RULES))
 def test_rule_can_be_disabled(rule):
     tx, sim, pol = SCENARIOS[rule]()
     pol = PolicyConfig.from_dict(pol.to_dict() | {"disabled_rules": [rule.lower()]})  # any case
     _, findings = assess(tx, sim, pol)
     assert rule not in rules_of(findings)
+
+
+@pytest.mark.parametrize("rule", sorted(FAIL_CLOSED_RULES))
+def test_fail_closed_rules_cannot_be_disabled(rule):
+    with pytest.raises(ValueError, match="cannot be disabled"):
+        PolicyConfig(disabled_rules={rule})
+    tx, sim, pol = SCENARIOS[rule]()
+    assert assess(tx, sim, pol)[0] == Verdict.BLOCK
+
+
+def test_disabling_an_unknown_rule_is_an_error_not_a_silent_no_op():
+    with pytest.raises(ValueError, match="unknown rules"):
+        PolicyConfig(disabled_rules={"SANDWICH_EXPOSRE"})
 
 
 @pytest.mark.parametrize("rule", sorted(BUNDLE_SCENARIOS))
@@ -214,7 +244,7 @@ def test_every_registered_rule_has_a_scenario_and_vice_versa():
 
 
 def test_every_non_bundle_rule_is_emitted_by_a_registered_check():
-    for rule in SCENARIOS:
+    for rule in set(SCENARIOS) - {"ENGINE_ERROR"}:  # ENGINE_ERROR comes from the engine itself
         assert checks_for_rule(rule), rule
 
 
@@ -558,3 +588,148 @@ def test_known_addresses_include_the_sender():
     pol = PolicyConfig(trusted_recipients={FRIEND}, address_book={OTHER: "x"})
     assert pol.known_addresses(TX) == {FRIEND, OTHER, U}
     assert pol.known_addresses() == {FRIEND, OTHER}
+
+
+# --------------------------------------------------------------------------- fail-closed behaviour
+
+def test_a_crashing_check_becomes_engine_error_and_block(monkeypatch):
+    from txwarden import risk
+
+    def boom(ctx):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(risk, "_CHECKS", [("boom", ("REVERT",), boom), *risk._CHECKS])
+    verdict, findings = assess(TX, SimResult(True), POL)
+    assert verdict == Verdict.BLOCK
+    err = next(f for f in findings if f.rule == "ENGINE_ERROR")
+    assert err.data["check"] == "boom" and "kaboom" in err.message
+
+
+def test_hostile_swap_numbers_are_engine_errors_not_exceptions():
+    verdict, findings = assess(TX, SimResult(True, swap=Swap(None, 1.0, 5.0, 5.0)), POL)  # type: ignore[arg-type]
+    assert verdict == Verdict.BLOCK and rules_of(findings) == {"ENGINE_ERROR"}
+
+
+def test_simulation_unavailable_is_not_also_reported_as_a_revert():
+    sim = SimResult(False, error="HTTP 429 from http://rpc")
+    verdict, findings = assess(TX, sim, POL)
+    assert verdict == Verdict.BLOCK and rules_of(findings) == {"SIMULATION_UNAVAILABLE"}
+    assert "429" in findings[0].message
+
+
+def test_incomplete_analysis_warns_but_optional_skips_do_not():
+    sim = SimResult(True, incomplete=["call_trace", "account_probe"])
+    verdict, findings = assess(TX, sim, POL)
+    assert verdict == Verdict.ALLOW and rules_of(findings) == {"CHECKS_SKIPPED"}
+    assert findings[0].data["skipped"] == ["call_trace", "account_probe"]
+    sim = SimResult(True, incomplete=["lp_state: pool total supply unavailable", "call_trace"])
+    verdict, findings = assess(TX, sim, POL)
+    assert verdict == Verdict.WARN and rules_of(findings) == {"ANALYSIS_INCOMPLETE", "CHECKS_SKIPPED"}
+    # a reverted call has no swap to analyse: only the revert is reported
+    reverted = SimResult(False, revert_reason="x", incomplete=["swap_state: none"])
+    assert rules_of(assess(TX, reverted, POL)[1]) == {"REVERT"}
+
+
+# --------------------------------------------------------------------------- new rule details
+
+def test_call_to_non_contract_needs_calldata_and_known_account_state():
+    data = "0x095ea7b3" + "00" * 64
+    no_code = {OTHER: AccountInfo(OTHER)}
+    assert "CALL_TO_NON_CONTRACT" in rules_of(assess(Tx(U, OTHER, data), SimResult(
+        True, accounts=no_code), POL)[1])
+    assert rules_of(assess(Tx(U, OTHER, "0x", 5), SimResult(True, accounts=no_code), POL)[1]) == set()
+    assert rules_of(assess(Tx(U, OTHER, data), SimResult(True), POL)[1]) == set()  # state unknown
+    has_code = {OTHER: AccountInfo(OTHER, code_size=10)}
+    assert rules_of(assess(Tx(U, OTHER, data), SimResult(True, accounts=has_code), POL)[1]) == set()
+    off = PolicyConfig(flag_call_to_non_contract=False)
+    assert rules_of(assess(Tx(U, OTHER, data), SimResult(True, accounts=no_code), off)[1]) == set()
+
+
+def test_burn_and_token_contract_transfers_win_over_address_book_membership():
+    dead = "0x" + "00" * 18 + "dead"
+    pol = PolicyConfig(address_book={TOKEN: "token", dead: "burn"}, trusted_recipients={dead})
+    sim = SimResult(True, transfers=[xfer(TOKEN), xfer(dead)])
+    assert rules_of(assess(TX, sim, pol)[1]) == {"TRANSFER_TO_TOKEN_CONTRACT",
+                                                 "TRANSFER_TO_BURN_ADDRESS"}
+    nft_to_self = Transfer(TOKEN, U, TOKEN, 1, None, "erc721")
+    assert "TRANSFER_TO_TOKEN_CONTRACT" in rules_of(assess(TX, SimResult(
+        True, transfers=[nft_to_self]), POL)[1])
+    eth_to_token = Transfer("0xeeee", U, TOKEN, 1, None, "eth")  # ETH sent to a contract address
+    assert "TRANSFER_TO_TOKEN_CONTRACT" not in rules_of(assess(TX, SimResult(
+        True, transfers=[eth_to_token]), POL)[1])
+
+
+def test_swap_recipient_rules():
+    pol = PolicyConfig(trusted_recipients={FRIEND}, denylist={EVIL})
+
+    def run(*recipients):
+        return rules_of(assess(TX, SimResult(True, output_recipients=list(recipients)), pol)[1])
+
+    assert run(U, TOKEN, FRIEND) == set()  # sender, the router (tx.to) and a trusted recipient
+    assert run(STRANGER) == {"SWAP_RECIPIENT_MISMATCH"}
+    assert run(EVIL) == {"TRANSFER_TO_DENYLISTED"}
+    assert run("0x" + "00" * 20) == {"TRANSFER_TO_BURN_ADDRESS"}
+    assert run(STRANGER.upper().replace("0X", "0x"), STRANGER) == {"SWAP_RECIPIENT_MISMATCH"}
+    off = PolicyConfig(flag_swap_recipient_mismatch=False)
+    assert rules_of(assess(TX, SimResult(True, output_recipients=[STRANGER]), off)[1]) == set()
+    booked = PolicyConfig(address_book={STRANGER: "my other wallet"})
+    assert rules_of(assess(TX, SimResult(True, output_recipients=[STRANGER]), booked)[1]) == set()
+
+
+def test_untrusted_pull_exemptions():
+    def pull(op, to=STRANGER, sender=U, kind="erc20"):
+        return SimResult(True, transfers=[Transfer(TOKEN, sender, to, 5, 100, kind, operator=op)])
+
+    assert rules_of(assess(TX, pull(U), POL)[1]) == set()  # the user pulling their own allowance
+    assert rules_of(assess(TX, pull(OTHER, to=OTHER), POL)[1]) == set()  # deposit to the operator
+    assert rules_of(assess(TX, pull(OTHER, to=U), POL)[1]) == set()  # back to the user
+    assert rules_of(assess(TX, pull(ROUTER), POL)[1]) == set()  # trusted operator
+    assert rules_of(assess(TX, pull(OTHER, to=FRIEND), POL)[1]) == set()  # trusted destination
+    assert rules_of(assess(TX, pull(OTHER, sender=STRANGER), POL)[1]) == set()  # not the user's
+    assert rules_of(assess(TX, pull(OTHER), POL)[1]) == {"UNTRUSTED_PULL_IN_TRACE"}
+    assert rules_of(assess(TX, pull(OTHER, kind="erc721"), POL)[1]) == {"UNTRUSTED_PULL_IN_TRACE"}
+
+
+def test_permit2_allowance_expiration_uses_the_far_deadline_rule():
+    def sim(expiration, amount=5):
+        return SimResult(True, block_timestamp=NOW,
+                         approvals=[Approval(TOKEN, U, ROUTER, amount, "permit2", expiration)])
+
+    assert rules_of(assess(TX, sim(2**48 - 1), POL)[1]) == {"PERMIT_FAR_DEADLINE"}  # never expires
+    assert rules_of(assess(TX, sim(NOW + 90 * DAY), POL)[1]) == {"PERMIT_FAR_DEADLINE"}
+    assert rules_of(assess(TX, sim(NOW + DAY), POL)[1]) == set()
+    assert rules_of(assess(TX, sim(2**48 - 1, amount=0), POL)[1]) == {"APPROVAL_REVOKED"}
+
+
+# --------------------------------------------------------------------------- bundles, end to end
+
+def test_approve_then_transfer_from_by_the_same_unknown_spender_blocks_end_to_end():
+    """Decoded from real calldata, not hand-built sims: tx0 approves X, tx1 is X pulling the funds."""
+    from txwarden.simulator import StaticSimulator
+
+    from .helpers import approve_calldata
+
+    pull = encode_call("transferFrom(address,address,uint256)", [U, OTHER, 100])
+    txs = [Tx(U, TOKEN, approve_calldata(OTHER, 100)), Tx(OTHER, TOKEN, pull)]
+    sims = [StaticSimulator().simulate(t) for t in txs]
+    review = assess_bundle(txs, sims, POL)
+    hit = next(f for f in review.bundle_findings if f.rule == "BUNDLE_APPROVE_THEN_PULL")
+    assert hit.severity.name == "CRITICAL" and review.verdict == Verdict.BLOCK
+    assert hit.data == {"spender": OTHER, "grant_index": 0, "pull_index": 1}
+    # the same pair with a spender the user trusts is an ordinary approve + pull
+    trusted = PolicyConfig(trusted_spenders={OTHER})
+    ok = assess_bundle(txs, sims, trusted)
+    assert not ok.bundle_findings
+
+
+def test_bundle_analysis_failure_fails_closed(monkeypatch):
+    from txwarden import batch
+
+    def boom(*a, **k):
+        raise RuntimeError("bundle bug")
+
+    monkeypatch.setattr(batch, "bundle_rules", boom)
+    review = assess_bundle([Tx(U, TOKEN)], [SimResult(True)], POL)
+    assert review.verdict == Verdict.BLOCK
+    assert review.bundle_findings[0].rule == "ENGINE_ERROR" and "bundle bug" in (
+        review.bundle_findings[0].message)

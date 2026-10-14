@@ -279,6 +279,9 @@ class SimResult:
     decoded: dict[str, Any] | None = None
     eth_receive_reverts: bool | None = None
     labels: dict[str, str] = field(default_factory=dict)  # token/contract names seen on-chain
+    error: str | None = None  # simulator infrastructure failure (RPC down, timeout): no analysis
+    incomplete: list[str] = field(default_factory=list)  # analyses the simulator could not run
+    output_recipients: list[str] = field(default_factory=list)  # who receives swap/router output
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SimResult:
@@ -308,6 +311,9 @@ class SimResult:
             decoded=d.get("decoded"),
             eth_receive_reverts=d.get("eth_receive_reverts"),
             labels=dict(d.get("labels", {})),
+            error=d.get("error"),
+            incomplete=list(d.get("incomplete", [])),
+            output_recipients=[str(a).lower() for a in d.get("output_recipients", [])],
         )
 
     def to_dict(self) -> dict[str, Any]:

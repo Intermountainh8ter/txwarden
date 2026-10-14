@@ -5,6 +5,7 @@ import pytest
 
 from txwarden.abi import encode_call
 from txwarden.models import Tx
+from txwarden.risk import PolicyConfig
 from txwarden.simulator import (
     AnvilSimulator,
     FixtureSimulator,
@@ -455,3 +456,176 @@ def test_http_transport_errors_are_wrapped():
     call = http_transport("http://127.0.0.1:1", timeout=0.5)
     with pytest.raises(RpcError, match="cannot reach"):
         call("eth_chainId", [])
+
+
+# --------------------------------------------------------------------------- fail-closed behaviour
+
+def test_transport_failure_is_reported_as_unavailable_not_as_a_revert():
+    from txwarden.risk import assess
+
+    def rpc(method, params):
+        raise RpcError("cannot reach http://127.0.0.1:8545: [Errno 111] Connection refused",
+                       transport=True)
+
+    r = AnvilSimulator(transport=rpc).simulate(Tx(U, TOKEN, approve_calldata(EVIL, 2**255)))
+    assert not r.success and r.revert_reason is None and "Connection refused" in r.error
+    assert r.approvals == [] and r.call_kind == "erc20_approve"
+    verdict, findings = assess(Tx(U, TOKEN), r)
+    assert verdict.value == "BLOCK" and [f.rule for f in findings] == ["SIMULATION_UNAVAILABLE"]
+
+
+@pytest.mark.parametrize("message,code", [
+    ("missing trie node 0xabc (path )", -32000), ("header not found", -32000),
+    ("daily request count exceeded, request rate limited", -32005),
+    ("HTTP 502 from https://rpc", 502), ("Too Many Requests", 429),
+])
+def test_node_side_infrastructure_errors_are_not_reverts(message, code):
+    def rpc(method, params):
+        if method == "eth_call":
+            raise RpcError(message, code)
+        return "0x1"
+
+    r = AnvilSimulator(transport=rpc).simulate(Tx(U, TOKEN, "0x"))
+    assert r.error == message and not r.success
+
+
+def test_a_revert_that_mentions_infrastructure_words_is_still_a_revert():
+    c = basic_chain()
+    c.reverts[(TOKEN, "0xa9059cbb")] = "rate limit exceeded for this account"
+    r = sim_for(c).simulate(Tx(U, TOKEN, transfer_calldata(STRANGER, 1)))
+    assert r.error is None and not r.success and "rate limit" in r.revert_reason
+    assert RpcError("execution reverted: timeout", 3).infrastructure is False
+    assert RpcError("request timed out", None).infrastructure is True
+    assert RpcError("boom", transport=True).infrastructure is True
+
+
+def test_gas_estimation_failure_on_infrastructure_is_also_unavailable():
+    def rpc(method, params):
+        if method == "eth_estimateGas":
+            raise RpcError("service unavailable", 503, transport=True)
+        return "0x"
+
+    assert AnvilSimulator(transport=rpc).simulate(Tx(U, TOKEN, "0x")).error == "service unavailable"
+
+
+# --------------------------------------------------------------------------- incomplete analysis
+
+def test_missing_pool_marks_swap_state_incomplete_and_assessment_warns():
+    from txwarden.risk import assess
+
+    c = basic_chain()
+    tx = Tx(U, ROUTER, v2_swap_calldata(10, 1, [TOKEN, OTHER]))
+    r = sim_for(c, honeypot=False).simulate(tx)
+    assert any(x.startswith("swap_state") for x in r.incomplete)
+    verdict, findings = assess(tx, r)
+    assert verdict.value == "WARN" and "ANALYSIS_INCOMPLETE" in {f.rule for f in findings}
+
+
+def test_second_swap_in_a_universal_router_call_is_flagged_as_unassessed():
+    from txwarden.abi import encode, encode_v3_path
+
+    from .helpers import ur_calldata
+
+    path = encode_v3_path([USDC, WETH], [500])
+    swap = "0x" + encode(["address", "uint256", "uint256", "bytes", "bool"],
+                         [U, 100, 90, path, True]).hex()
+    c = v3_chain()
+    r = sim_for(c, honeypot=False).simulate(Tx(U, ROUTER, ur_calldata(bytes([0, 0]), [swap, swap])))
+    assert r.swap_v3 is not None
+    assert any("only the first of 2 swaps" in x for x in r.incomplete)
+
+
+def test_lp_removal_without_pool_totals_is_flagged():
+    c = basic_chain()
+    data = encode_call("removeLiquidity(address,address,uint256,uint256,uint256,address,uint256)",
+                       [WETH, OTHER, 5, 0, 0, U, 2**40])
+    r = sim_for(c).simulate(Tx(U, ROUTER, data))
+    assert any(x.startswith("lp_state") for x in r.incomplete)
+
+
+def test_skipped_optional_probes_are_listed_for_transparency():
+    c = basic_chain()
+    c.supports_trace = False
+
+    def rpc(method, params):
+        if method == "eth_getCode":
+            raise RpcError("Method not found", -32601)
+        return c.rpc(method, params)
+
+    r = AnvilSimulator(transport=rpc).simulate(Tx(U, TOKEN, approve_calldata(STRANGER, 5)))
+    assert set(r.incomplete) == {"account_probe", "call_trace"}
+    clean = basic_chain()
+    clean.trace = {"type": "CALL", "from": U, "to": TOKEN}
+    assert sim_for(clean).simulate(Tx(U, TOKEN, approve_calldata(STRANGER, 5))).incomplete == []
+
+
+def test_static_simulator_declares_what_it_could_not_check():
+    sim = StaticSimulator()
+    approve = sim.simulate(Tx(U, TOKEN, approve_calldata(EVIL, 5)))
+    assert approve.incomplete == ["chain_state"]
+    swap = sim.simulate(Tx(U, ROUTER, v2_swap_calldata(1, 1, [TOKEN, WETH])))
+    assert [x.split(":")[0] for x in swap.incomplete] == ["chain_state", "swap_state"]
+    lp = sim.simulate(Tx(U, ROUTER, encode_call(
+        "removeLiquidity(address,address,uint256,uint256,uint256,address,uint256)",
+        [WETH, TOKEN, 9, 0, 0, U, 2**40])))
+    assert [x.split(":")[0] for x in lp.incomplete] == ["chain_state", "lp_state"]
+
+
+# --------------------------------------------------------------------------- output and trace
+
+def test_swap_output_recipients_are_recorded_and_flagged():
+    from txwarden.risk import assess
+
+    c = basic_chain()
+    tx = Tx(U, ROUTER, v2_swap_calldata(10 * E, 1, [TOKEN, WETH], to=STRANGER))
+    r = sim_for(c, honeypot=False).simulate(tx)
+    assert r.output_recipients == [STRANGER]
+    assert "SWAP_RECIPIENT_MISMATCH" in {f.rule for f in assess(tx, r)[1]}
+    own = sim_for(c, honeypot=False).simulate(Tx(U, ROUTER, v2_swap_calldata(10, 1, [TOKEN, WETH])))
+    assert own.output_recipients == [U]
+    assert "SWAP_RECIPIENT_MISMATCH" not in {f.rule for f in assess(Tx(U, ROUTER), own)[1]}
+
+
+def test_universal_router_sweep_to_a_stranger_is_seen():
+    from txwarden.abi import encode
+
+    from .helpers import ur_calldata
+
+    sweep = "0x" + encode(["address", "address", "uint256"], [USDC, STRANGER, 0]).hex()
+    r = sim_for(basic_chain()).simulate(Tx(U, ROUTER, ur_calldata(bytes([0x04]), [sweep])))
+    assert r.output_recipients == [STRANGER]
+
+
+def test_trace_derived_token_pull_is_added_with_balance_and_recipient_probe():
+    from txwarden.risk import assess
+
+    claim, helper = "0x" + "d1" * 20, "0x" + "d3" * 20
+    pull = encode_call("transferFrom(address,address,uint256)", [U, EVIL, 95 * 10**22])
+    c = basic_chain()
+    c.contract(claim)
+    c.trace = {"type": "CALL", "from": U, "to": claim, "input": "0x4e71d92d", "calls": [
+        {"type": "CALL", "from": claim, "to": helper, "input": "0x", "calls": [
+            {"type": "CALL", "from": helper, "to": TOKEN, "input": pull},
+            {"type": "STATICCALL", "from": helper, "to": TOKEN, "input": pull},
+            {"type": "CALL", "from": helper, "to": TOKEN, "input": pull, "error": "reverted"}]}]}
+    tx = Tx(U, claim, "0x4e71d92d")
+    r = sim_for(c, honeypot=False).simulate(tx)
+    pulls = [t for t in r.transfers if t.recipient == EVIL]
+    assert len(pulls) == 1  # static-call and failed frames are not movements
+    t = pulls[0]
+    assert t.sender == U and t.operator == helper and t.sender_balance_before == 10**24
+    assert EVIL in r.accounts and r.accounts[EVIL].is_fresh
+    verdict, findings = assess(tx, r, PolicyConfig(denylist=set()))
+    rules = {f.rule for f in findings}
+    assert {"UNTRUSTED_PULL_IN_TRACE", "NEAR_FULL_BALANCE_TO_NEW_ADDRESS",
+            "TRANSFER_TO_FRESH_ADDRESS"} <= rules
+    assert verdict.value == "WARN"
+
+
+def test_trace_pull_already_visible_in_calldata_is_not_double_counted():
+    pull = encode_call("transferFrom(address,address,uint256)", [U, STRANGER, 5])
+    c = basic_chain()
+    c.trace = {"type": "CALL", "from": U, "to": TOKEN, "input": pull, "calls": [
+        {"type": "CALL", "from": TOKEN, "to": TOKEN, "input": pull}]}
+    r = sim_for(c).simulate(Tx(U, TOKEN, pull))
+    assert len([t for t in r.transfers if t.recipient == STRANGER]) == 1

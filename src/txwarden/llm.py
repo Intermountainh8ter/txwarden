@@ -16,19 +16,33 @@ class LLM(Protocol):
     def create(self, system: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Reply: ...
 
 
+class LLMError(RuntimeError):
+    """The language model could not be used (SDK missing, no API key, request failed).
+
+    Never affects a verdict: the deterministic engine does not need the model."""
+
+
 class AnthropicLLM:
     def __init__(self, model: str | None = None, max_tokens: int = 1024):
-        import anthropic  # optional dependency: pip install txwarden[llm]
-
+        try:
+            import anthropic  # optional dependency: pip install txwarden[llm]
+        except ImportError as e:
+            raise LLMError("the `anthropic` package is not installed "
+                           "(pip install 'txwarden[llm]')") from e
+        if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+            raise LLMError("ANTHROPIC_API_KEY is not set")
         self.client = anthropic.Anthropic()
         self.model = model or os.environ.get("TXWARDEN_MODEL", "claude-sonnet-5-5")
         self.max_tokens = max_tokens
 
     def create(self, system: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Reply:
-        r = self.client.messages.create(
-            model=self.model, max_tokens=self.max_tokens, system=system,
-            messages=messages, tools=tools,
-        )
+        try:
+            r = self.client.messages.create(
+                model=self.model, max_tokens=self.max_tokens, system=system,
+                messages=messages, tools=tools,
+            )
+        except Exception as e:  # SDK errors are many and version-specific; all mean "no model"
+            raise LLMError(f"{type(e).__name__}: {e}") from e
         blocks = [b.model_dump(exclude_none=True) for b in r.content]
         return Reply(blocks, r.stop_reason)
 

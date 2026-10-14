@@ -1,0 +1,38 @@
+{
+ "description": "Hand-written trace in which a router-like contract calls a denylisted address several frames down.",
+ "synthetic": true,
+ "tree": {
+  "type": "CALL",
+  "from": "0x1111111111111111111111111111111111111111",
+  "to": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+  "value": "0x0",
+  "gas": "0x5208",
+  "gasUsed": "0x1000",
+  "input": "0x38ed17390000000000000000000000000000000000000000000000000000000000000000",
+  "output": "0x",
+  "calls": [
+   {
+    "type": "CALL",
+    "from": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+    "to": "0x9999999999999999999999999999999999999999",
+    "value": "0x0",
+    "gas": "0x5208",
+    "gasUsed": "0x1000",
+    "input": "0x",
+    "output": "0x",
+    "calls": [
+     {
+      "type": "CALL",
+      "from": "0x9999999999999999999999999999999999999999",
+      "to": "0xdededededededededededededededededededede",
+      "value": "0x1",
+      "gas": "0x5208",
+      "gasUsed": "0x1000",
+      "input": "0x",
+      "output": "0x"
+     }
+    ]
+   }
+  ]
+ }
+}

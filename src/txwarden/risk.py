@@ -2,14 +2,16 @@
 
 Structure:
 
-- ``RULES`` is the registry: every rule id with its fixed severity, category, description and the
-  ``PolicyConfig`` fields that influence it. ``docs/RULES.md`` and ``txwarden explain`` are
-  generated from it, and a test asserts that every finding emitted anywhere uses a registered id.
+- ``rules.RULES`` is the registry (re-exported here): every rule id with its fixed severity,
+  category, description, operator docs and the ``PolicyConfig`` fields that influence it.
+  ``docs/RULES.md`` and ``txwarden explain`` are generated from it, and a test asserts that every
+  finding emitted anywhere uses a registered id.
 - ``compute_facts`` does the expensive, policy-independent measurements (AMM simulation, sandwich
   bisection) once per transaction.
 - ``apply_rules`` runs the cheap checks against a ``PolicyConfig``. Threshold sweeps in the evals
   re-run only this step.
 - ``assess`` = facts + rules + verdict. CRITICAL -> BLOCK, HIGH -> WARN, otherwise ALLOW.
+  A check that raises becomes an ``ENGINE_ERROR`` finding (BLOCK): the engine fails closed.
 """
 from __future__ import annotations
 
@@ -28,6 +30,22 @@ from .amm import (
 )
 from .amm_v3 import V3Pool, estimate_sandwich_v3, price_impact_bps_v3, swap_exact_in
 from .models import Finding, Severity, SimResult, Tx, Verdict
+from .rules import RULES, RuleSpec, verdict_for_severity
+
+__all__ = [
+    "BURN_ADDRESSES",
+    "FAIL_CLOSED_RULES",
+    "RULES",
+    "PolicyConfig",
+    "RuleSpec",
+    "apply_rules",
+    "assess",
+    "check",
+    "checks_for_rule",
+    "compute_facts",
+    "verdict_for_severity",
+    "verdict_from",
+]
 
 UNLIMITED = 2**255
 PERMIT2_UNLIMITED = 2**160 - 1
@@ -59,6 +77,12 @@ TYPICAL_GAS: dict[str, int] = {
     "multicall": 400_000,
 }
 DEFAULT_TYPICAL_GAS = 250_000
+
+# Rules that exist so that missing or broken analysis can never become ALLOW.
+FAIL_CLOSED_RULES = frozenset({"ENGINE_ERROR", "SIMULATION_UNAVAILABLE"})
+# `SimResult.incomplete` markers that mean "a trade-risk analysis could not run" (-> WARN).
+HARD_INCOMPLETE = frozenset({"swap_state", "lp_state"})
+BURN_ADDRESSES = frozenset({"0x" + "00" * 20, "0x" + "00" * 18 + "dead"})
 
 
 # --------------------------------------------------------------------------- policy
@@ -96,6 +120,9 @@ class PolicyConfig:
     # gas
     gas_abnormal_multiple: float = 5.0
     gas_block_absolute: int = 10_000_000
+    flag_swap_recipient_mismatch: bool = True
+    # target
+    flag_call_to_non_contract: bool = True
     # trace
     flag_unknown_delegatecall: bool = True
     flag_contract_creation: bool = True
@@ -110,6 +137,13 @@ class PolicyConfig:
                      "trusted_implementations", "disabled_rules"):
             setattr(self, name, {str(a).lower() for a in getattr(self, name)})
         self.disabled_rules = {r.upper() for r in self.disabled_rules}
+        unknown = self.disabled_rules - set(RULES)
+        if unknown:
+            raise ValueError(f"disabled_rules names unknown rules: {sorted(unknown)}")
+        locked = self.disabled_rules & FAIL_CLOSED_RULES
+        if locked:
+            raise ValueError(f"rules {sorted(locked)} cannot be disabled: they implement "
+                             "fail-closed behaviour")
         self.address_book = {str(a).lower(): str(n) for a, n in self.address_book.items()}
 
     @classmethod
@@ -154,166 +188,9 @@ class PolicyConfig:
         return a in self.trusted_operators or a in self.trusted_spenders
 
 
-# --------------------------------------------------------------------------- rule registry
+# --------------------------------------------------------------------------- check registry
 
-@dataclass(frozen=True)
-class RuleSpec:
-    id: str
-    severity: Severity
-    category: str
-    title: str
-    description: str
-    config: tuple[str, ...] = ()
-
-    @property
-    def verdict(self) -> Verdict:
-        return verdict_for_severity(self.severity)
-
-
-def verdict_for_severity(sev: Severity) -> Verdict:
-    if sev >= Severity.CRITICAL:
-        return Verdict.BLOCK
-    if sev >= Severity.HIGH:
-        return Verdict.WARN
-    return Verdict.ALLOW
-
-
-RULES: dict[str, RuleSpec] = {}
 _CHECKS: list[tuple[str, tuple[str, ...], Callable[[RuleContext], None]]] = []
-
-
-def _r(id: str, sev: Severity, cat: str, title: str, desc: str, *config: str) -> None:
-    RULES[id] = RuleSpec(id, sev, cat, title, desc, tuple(config))
-
-
-CRIT, HIGH, MED, INFO = Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.INFO
-
-_r("DENYLISTED_TARGET", CRIT, "target", "Call to a denylisted contract",
-   "The transaction's `to` address is on the user's denylist.", "denylist")
-_r("ADDRESS_LOOKALIKE", CRIT, "target", "Address-poisoning lookalike",
-   "A counterparty address is not in the user's books but shares its leading and trailing hex "
-   "characters with one that is (or with the sender). This is the signature of address-poisoning "
-   "phishing, where a truncated wallet display makes the two indistinguishable.",
-   "lookalike_prefix", "lookalike_suffix", "address_book", "trusted_spenders",
-   "trusted_recipients")
-_r("CHAIN_ID_MISMATCH", CRIT, "simulation", "Chain id mismatch",
-   "The transaction's chain id differs from the chain the simulator is connected to, or from "
-   "`expected_chain_id` in the policy. A signature meant for one chain must not be produced "
-   "against another.", "expected_chain_id")
-
-_r("UNLIMITED_APPROVAL_UNKNOWN", CRIT, "approval", "Unlimited approval to unknown spender",
-   "An ERC-20 approval of 2**255 or more (or the uint160 maximum via Permit2) to a spender that is "
-   "not in `trusted_spenders`. This is the primary drainer primitive.", "trusted_spenders")
-_r("APPROVAL_TO_DENYLISTED", CRIT, "approval", "Approval to denylisted spender",
-   "Any approval whose spender is on the denylist.", "denylist")
-_r("APPROVAL_UNKNOWN_SPENDER", HIGH, "approval", "Bounded approval to unknown spender",
-   "A finite approval to a spender that is not in `trusted_spenders`.", "trusted_spenders")
-_r("UNLIMITED_APPROVAL_TRUSTED", MED, "approval", "Unlimited approval to trusted spender",
-   "Noted for the explanation; does not change the verdict.", "trusted_spenders")
-_r("APPROVAL_REVOKED", INFO, "approval", "Approval set to zero", "An allowance is being revoked.")
-
-_r("OPERATOR_APPROVAL_UNKNOWN", CRIT, "operator", "setApprovalForAll to unknown operator",
-   "Grants an operator control over every token of an ERC-721/1155 collection. Unknown "
-   "operators are blocked outright; this is how NFT drainers work.", "trusted_operators",
-   "trusted_spenders")
-_r("OPERATOR_APPROVAL_DENYLISTED", CRIT, "operator", "setApprovalForAll to denylisted operator",
-   "The operator is on the denylist.", "denylist")
-_r("OPERATOR_APPROVAL_TRUSTED", MED, "operator", "setApprovalForAll to trusted operator",
-   "Collection-wide approval to a marketplace or operator the user trusts.", "trusted_operators")
-_r("OPERATOR_APPROVAL_REVOKED", INFO, "operator", "Operator approval revoked",
-   "`setApprovalForAll(operator, false)`.")
-
-_r("PERMIT_UNLIMITED_UNKNOWN", CRIT, "permit", "Unlimited permit to unknown spender",
-   "An EIP-2612, DAI or Permit2 signature granting an unlimited allowance to an unknown spender. "
-   "Permits are gasless and off-chain, so a phishing site can collect one without a transaction.",
-   "trusted_spenders")
-_r("PERMIT_TO_DENYLISTED", CRIT, "permit", "Permit to denylisted spender", "", "denylist")
-_r("PERMIT_UNKNOWN_SPENDER", HIGH, "permit", "Bounded permit to unknown spender", "",
-   "trusted_spenders")
-_r("PERMIT_FAR_DEADLINE", HIGH, "permit", "Permit deadline far in the future",
-   "The permit stays valid for longer than `permit_deadline_warn_s` (default 30 days) or never "
-   "expires. Long-lived signatures are harvested and replayed later.", "permit_deadline_warn_s")
-_r("PERMIT_UNLIMITED_TRUSTED", MED, "permit", "Unlimited permit to trusted spender", "",
-   "trusted_spenders")
-
-_r("TRANSFER_TO_DENYLISTED", CRIT, "transfer", "Transfer to denylisted address", "", "denylist")
-_r("NEAR_FULL_BALANCE_TO_NEW_ADDRESS", HIGH, "transfer", "Near-full balance to unrecognised address",
-   "At least `drain_fraction` of the sender's balance goes to an address that is not in "
-   "`trusted_recipients` or the address book.", "drain_fraction", "trusted_recipients")
-_r("TRANSFER_TO_FRESH_ADDRESS", HIGH, "transfer", "Transfer to a never-used address",
-   "The recipient has no code, no nonce and no balance. Fresh addresses are typical of "
-   "poisoning and typo'd destinations; legitimate new wallets are usually funded first.",
-   "flag_fresh_recipients", "trusted_recipients")
-_r("TRANSFER_TO_UNKNOWN_CONTRACT", MED, "transfer", "Token transfer to unknown contract",
-   "Tokens sent directly to a contract that is not in the address book are often "
-   "unrecoverable. Noted, not blocked.", "flag_contract_recipients")
-
-_r("PRICE_IMPACT_EXTREME", CRIT, "swap", "Extreme price impact",
-   "Execution price is at least `impact_block_bps` worse than spot.", "impact_block_bps")
-_r("PRICE_IMPACT_HIGH", HIGH, "swap", "High price impact", "", "impact_warn_bps")
-_r("SLIPPAGE_TOLERANCE_EXTREME", CRIT, "swap", "Extreme slippage tolerance",
-   "`min_out` is at least `slippage_block` below the simulated output; anything in between can "
-   "be taken by a sandwich.", "slippage_block")
-_r("SLIPPAGE_TOLERANCE_LOOSE", HIGH, "swap", "Loose slippage tolerance", "", "slippage_warn")
-_r("SANDWICH_EXPOSURE_SEVERE", CRIT, "swap", "Severe sandwich exposure",
-   "A searcher can extract at least `sandwich_block_bps` of the input by front- and back-running "
-   "within the slippage floor (computed by bisection on the pool curve).", "sandwich_block_bps")
-_r("SANDWICH_EXPOSURE", HIGH, "swap", "Sandwich exposure", "", "sandwich_warn_bps")
-_r("LIQUIDITY_EXHAUSTED", CRIT, "swap", "Pool cannot fill the trade",
-   "The Uniswap V3 pool runs out of in-range liquidity before the input is consumed.",
-   "min_fill_fraction")
-
-_r("REVERT", HIGH, "simulation", "Transaction reverts in simulation", "")
-_r("ETH_REJECTED_BY_CONTRACT", HIGH, "simulation", "Contract rejects plain ETH",
-   "The call reverts and the target also reverts on a plain value transfer: it has no payable "
-   "receive/fallback, so the attached ETH cannot be accepted.")
-_r("GAS_EXTREME", CRIT, "simulation", "Extreme gas usage",
-   "Estimated gas exceeds `gas_block_absolute`. Looping drainers and griefing contracts burn "
-   "gas to extract value from the signer.", "gas_block_absolute")
-_r("GAS_ABNORMAL", HIGH, "simulation", "Abnormal gas usage",
-   "Estimated gas exceeds `gas_abnormal_multiple` times what this kind of call typically costs.",
-   "gas_abnormal_multiple")
-
-_r("SELFDESTRUCT_IN_TRACE", CRIT, "trace", "SELFDESTRUCT in call tree", "")
-_r("DELEGATECALL_TO_UNKNOWN", CRIT, "trace", "Nested delegatecall to unknown code",
-   "A contract below the top level delegatecalls into code that is not in the address book or "
-   "`trusted_implementations`. Delegatecall runs foreign code with the caller's storage.",
-   "flag_unknown_delegatecall", "trusted_implementations", "address_book")
-_r("PROXY_DELEGATECALL_UNKNOWN_IMPL", MED, "trace", "Proxy delegates to unlabelled implementation",
-   "The target itself delegatecalls to an implementation that is not labelled. Normal for "
-   "proxies; noted so the implementation can be reviewed.", "flag_unknown_delegatecall")
-_r("CONTRACT_CREATION_IN_TRACE", HIGH, "trace", "Contract created during the call",
-   "CREATE/CREATE2 inside a transaction the user did not describe as a deployment.",
-   "flag_contract_creation")
-_r("DENYLISTED_IN_TRACE", CRIT, "trace", "Denylisted address touched in call tree", "", "denylist")
-
-_r("HONEYPOT_SELL_REVERTS", CRIT, "honeypot", "Token can be bought but not sold",
-   "The buy-then-sell probe succeeds on the buy and reverts on the sell, including the "
-   "fee-on-transfer sell variant. Classic honeypot.")
-_r("ROUND_TRIP_LOSS_SEVERE", CRIT, "honeypot", "Severe round-trip loss",
-   "Buying then immediately selling loses at least `honeypot_loss_block` of the input: a "
-   "transfer tax or rigged pool.", "honeypot_loss_block")
-_r("ROUND_TRIP_LOSS", HIGH, "honeypot", "Round-trip loss (fee on transfer)",
-   "Round trip loses at least `honeypot_loss_warn`, more than fees and impact explain.",
-   "honeypot_loss_warn")
-
-_r("LP_REMOVAL_MAJORITY", CRIT, "liquidity", "Removes the majority of a pool's liquidity",
-   "The call withdraws at least `lp_removal_block_fraction` of the pool. Rug pulls look like "
-   "this; so does closing your own single-LP pool, which a trusted recipient makes legitimate.",
-   "lp_removal_block_fraction")
-_r("LP_REMOVAL_LARGE", HIGH, "liquidity", "Removes a large share of a pool's liquidity", "",
-   "lp_removal_warn_fraction")
-
-_r("BUNDLE_APPROVE_THEN_PULL", CRIT, "bundle", "Approval then pull by the same unknown spender",
-   "One transaction in the bundle approves an unknown spender and a later one calls that spender "
-   "or lets it transferFrom the user. Drainer flows split the approval from the pull so each "
-   "step looks harmless.", "trusted_spenders")
-_r("BUNDLE_ADD_THEN_REMOVE_LIQUIDITY", CRIT, "bundle", "Add then remove liquidity in one bundle",
-   "Liquidity is added and withdrawn from the same pool within the bundle: launch-and-rug.")
-_r("BUNDLE_CUMULATIVE_DRAIN", HIGH, "bundle", "Bundle drains the balance cumulatively",
-   "Individual transfers stay under `drain_fraction` but together they exceed it.",
-   "drain_fraction")
-_r("BUNDLE_MIXED_CHAIN_IDS", CRIT, "bundle", "Bundle mixes chain ids", "")
 
 
 def check(*rule_ids: str):
@@ -429,6 +306,17 @@ def _target(ctx: RuleContext) -> None:
         ctx.emit("DENYLISTED_TARGET", f"Target {ctx.tx.to} is denylisted", {"address": ctx.tx.to})
 
 
+@check("CALL_TO_NON_CONTRACT")
+def _non_contract(ctx: RuleContext) -> None:
+    if not ctx.policy.flag_call_to_non_contract or len(ctx.tx.data) <= 2:
+        return
+    acct = ctx.sim.accounts.get(ctx.tx.to.lower())
+    if acct is not None and not acct.is_contract:
+        ctx.emit("CALL_TO_NON_CONTRACT",
+                 f"Calldata sent to {ctx.tx.to}, which has no code; the call will do nothing",
+                 {"address": ctx.tx.to, "value": ctx.tx.value})
+
+
 @check("CHAIN_ID_MISMATCH")
 def _chain(ctx: RuleContext) -> None:
     expected = ctx.policy.expected_chain_id
@@ -442,8 +330,18 @@ def _chain(ctx: RuleContext) -> None:
                  {"tx_chain_id": ctx.tx.chain_id, "sim_chain_id": ctx.sim.chain_id})
 
 
+def _far_deadline(ctx: RuleContext, deadline: int, what: str, data: dict[str, Any]) -> None:
+    now = ctx.sim.block_timestamp
+    if deadline >= FAR_FUTURE:
+        ctx.emit("PERMIT_FAR_DEADLINE", f"{what} never expires", data)
+    elif now is not None and deadline - now > ctx.policy.permit_deadline_warn_s:
+        days = (deadline - now) / DAY
+        ctx.emit("PERMIT_FAR_DEADLINE", f"{what} valid for {days:.0f} days",
+                 {**data, "valid_for_s": deadline - now})
+
+
 @check("UNLIMITED_APPROVAL_UNKNOWN", "APPROVAL_TO_DENYLISTED", "APPROVAL_UNKNOWN_SPENDER",
-       "UNLIMITED_APPROVAL_TRUSTED", "APPROVAL_REVOKED")
+       "UNLIMITED_APPROVAL_TRUSTED", "APPROVAL_REVOKED", "PERMIT_FAR_DEADLINE")
 def _approvals(ctx: RuleContext) -> None:
     pol = ctx.policy
     for a in ctx.sim.approvals:
@@ -463,6 +361,8 @@ def _approvals(ctx: RuleContext) -> None:
         elif not pol.is_trusted_spender(spender):
             ctx.emit("APPROVAL_UNKNOWN_SPENDER",
                      f"Bounded approval to unknown spender {ctx.label(spender)}", data)
+        if a.via == "permit2" and a.amount > 0 and a.expiration is not None:
+            _far_deadline(ctx, a.expiration, "Permit2 allowance", {**data, "expiration": a.expiration})
 
 
 @check("OPERATOR_APPROVAL_UNKNOWN", "OPERATOR_APPROVAL_DENYLISTED", "OPERATOR_APPROVAL_TRUSTED",
@@ -489,7 +389,6 @@ def _operators(ctx: RuleContext) -> None:
        "PERMIT_FAR_DEADLINE", "PERMIT_UNLIMITED_TRUSTED")
 def _permits(ctx: RuleContext) -> None:
     pol = ctx.policy
-    now = ctx.sim.block_timestamp
     for p in ctx.sim.permits:
         spender = p.spender.lower()
         via = "permit2" if p.kind == "permit2" else ""
@@ -507,17 +406,12 @@ def _permits(ctx: RuleContext) -> None:
         elif p.amount > 0 and not pol.is_trusted_spender(spender):
             ctx.emit("PERMIT_UNKNOWN_SPENDER",
                      f"{p.kind} permit of {p.amount} to unknown spender {ctx.label(spender)}", data)
-        if p.amount == 0:
-            continue
-        if p.deadline >= FAR_FUTURE:
-            ctx.emit("PERMIT_FAR_DEADLINE", "Permit never expires", data)
-        elif now is not None and p.deadline - now > pol.permit_deadline_warn_s:
-            days = (p.deadline - now) / DAY
-            ctx.emit("PERMIT_FAR_DEADLINE", f"Permit valid for {days:.0f} days",
-                     {**data, "valid_for_s": p.deadline - now})
+        if p.amount > 0:
+            _far_deadline(ctx, p.deadline, "Permit", data)
 
 
-@check("TRANSFER_TO_DENYLISTED", "NEAR_FULL_BALANCE_TO_NEW_ADDRESS", "TRANSFER_TO_FRESH_ADDRESS",
+@check("TRANSFER_TO_DENYLISTED", "TRANSFER_TO_BURN_ADDRESS", "TRANSFER_TO_TOKEN_CONTRACT",
+       "NEAR_FULL_BALANCE_TO_NEW_ADDRESS", "TRANSFER_TO_FRESH_ADDRESS",
        "TRANSFER_TO_UNKNOWN_CONTRACT")
 def _transfers(ctx: RuleContext) -> None:
     pol = ctx.policy
@@ -528,9 +422,16 @@ def _transfers(ctx: RuleContext) -> None:
         if r in pol.denylist:
             ctx.emit("TRANSFER_TO_DENYLISTED", f"Transfer to denylisted {r}", data)
             continue
-        if r == sender or t.sender.lower() != sender:
+        if r in BURN_ADDRESSES:
+            ctx.emit("TRANSFER_TO_BURN_ADDRESS", f"Funds sent to the burn address {r}", data)
             continue
-        if r in pol.trusted_recipients or r in pol.address_book:
+        if t.sender.lower() != sender:
+            continue
+        if t.kind != "eth" and r == t.token.lower():
+            ctx.emit("TRANSFER_TO_TOKEN_CONTRACT",
+                     f"Tokens sent to the token contract {r} itself; they are unrecoverable", data)
+            continue
+        if r == sender or r in pol.trusted_recipients or r in pol.address_book:
             continue
         bal = t.sender_balance_before
         if bal and t.amount / bal >= pol.drain_fraction:
@@ -546,6 +447,36 @@ def _transfers(ctx: RuleContext) -> None:
         elif pol.flag_contract_recipients and acct.is_contract and t.kind != "eth":
             ctx.emit("TRANSFER_TO_UNKNOWN_CONTRACT",
                      f"{t.kind} tokens sent to unlabelled contract {r}", data)
+
+
+@check("UNTRUSTED_PULL_IN_TRACE")
+def _pulls(ctx: RuleContext) -> None:
+    sender = ctx.tx.sender.lower()
+    for t in ctx.sim.transfers:
+        op = (t.operator or "").lower()
+        r = t.recipient.lower()
+        if not op or op == sender or t.sender.lower() != sender or t.kind == "eth":
+            continue
+        if r in (sender, op) or ctx.is_known(op) or ctx.is_known(r) or r in ctx.policy.denylist:
+            continue
+        ctx.emit("UNTRUSTED_PULL_IN_TRACE",
+                 f"Untrusted contract {op} moves your {t.kind} tokens to {r}",
+                 {"operator": op, "recipient": r, "token": t.token, "amount": t.amount})
+
+
+@check("SWAP_RECIPIENT_MISMATCH", "TRANSFER_TO_DENYLISTED", "TRANSFER_TO_BURN_ADDRESS")
+def _output_recipients(ctx: RuleContext) -> None:
+    pol = ctx.policy
+    router = ctx.tx.to.lower()
+    for r in dict.fromkeys(a.lower() for a in ctx.sim.output_recipients):
+        data = {"recipient": r, "router": router}
+        if r in pol.denylist:
+            ctx.emit("TRANSFER_TO_DENYLISTED", f"Swap output routed to denylisted {r}", data)
+        elif r in BURN_ADDRESSES:
+            ctx.emit("TRANSFER_TO_BURN_ADDRESS", f"Swap output routed to the burn address {r}", data)
+        elif pol.flag_swap_recipient_mismatch and r != router and not ctx.is_known(r):
+            ctx.emit("SWAP_RECIPIENT_MISMATCH",
+                     f"Output of this call goes to {r}, not to you", data)
 
 
 @check("ADDRESS_LOOKALIKE")
@@ -601,10 +532,32 @@ def _swaps(ctx: RuleContext) -> None:
                          f"Slippage floor permits ~{m.sandwich_bps:.0f} bps extraction", data)
 
 
+@check("SIMULATION_UNAVAILABLE")
+def _unavailable(ctx: RuleContext) -> None:
+    if ctx.sim.error:
+        ctx.emit("SIMULATION_UNAVAILABLE", f"Simulation unavailable: {ctx.sim.error}",
+                 {"error": ctx.sim.error})
+
+
+@check("ANALYSIS_INCOMPLETE", "CHECKS_SKIPPED")
+def _incomplete(ctx: RuleContext) -> None:
+    sim = ctx.sim
+    if sim.error:
+        return
+    hard = [x for x in sim.incomplete if x.split(":", 1)[0] in HARD_INCOMPLETE]
+    soft = [x for x in sim.incomplete if x.split(":", 1)[0] not in HARD_INCOMPLETE]
+    if hard and sim.success:
+        ctx.emit("ANALYSIS_INCOMPLETE",
+                 f"Pool state unavailable; could not evaluate: {', '.join(hard)}", {"missing": hard})
+    if soft:
+        ctx.emit("CHECKS_SKIPPED", f"Checks that did not run: {', '.join(soft)}",
+                 {"skipped": soft})
+
+
 @check("REVERT", "ETH_REJECTED_BY_CONTRACT")
 def _revert(ctx: RuleContext) -> None:
     sim = ctx.sim
-    if sim.success:
+    if sim.success or sim.error:
         return
     ctx.emit("REVERT", f"Transaction reverts: {sim.revert_reason or 'unknown'}",
              {"reason": sim.revert_reason})
@@ -697,8 +650,12 @@ def _liquidity(ctx: RuleContext) -> None:
 
 def apply_rules(tx: Tx, sim: SimResult, facts: Facts, policy: PolicyConfig) -> list[Finding]:
     ctx = RuleContext(tx, sim, facts, policy)
-    for _name, _ids, fn in _CHECKS:
-        fn(ctx)
+    for name, _ids, fn in _CHECKS:
+        try:
+            fn(ctx)
+        except Exception as e:  # noqa: PERF203 - a crashing check must never silently become ALLOW
+            ctx.emit("ENGINE_ERROR", f"check {name} failed: {type(e).__name__}: {e}",
+                     {"check": name, "error": f"{type(e).__name__}: {e}"})
     if policy.disabled_rules:
         return [f for f in ctx.findings if f.rule not in policy.disabled_rules]
     return ctx.findings
@@ -712,7 +669,15 @@ def verdict_from(findings: list[Finding]) -> Verdict:
 def assess(tx: Tx, sim: SimResult, policy: PolicyConfig | None = None
            ) -> tuple[Verdict, list[Finding]]:
     policy = policy or PolicyConfig()
-    findings = apply_rules(tx, sim, compute_facts(tx, sim), policy)
+    try:
+        facts, fact_error = compute_facts(tx, sim), None
+    except Exception as e:  # AMM math on hostile numbers (inf/NaN/overflow)
+        facts, fact_error = Facts(), f"{type(e).__name__}: {e}"
+    findings = apply_rules(tx, sim, facts, policy)
+    if fact_error:
+        findings.append(Finding("ENGINE_ERROR", RULES["ENGINE_ERROR"].severity,
+                                f"swap analysis failed: {fact_error}",
+                                {"check": "compute_facts", "error": fact_error}))
     return verdict_from(findings), findings
 
 

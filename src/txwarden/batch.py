@@ -128,6 +128,10 @@ def assess_bundle(txs: list[Tx], sims: list[SimResult], policy: PolicyConfig | N
     for i, (tx, sim) in enumerate(zip(txs, sims)):
         v, f = assess(tx, sim, policy)
         per_tx.append(TxReview(i, v, f))
-    extra = bundle_rules(txs, sims, policy)
+    try:
+        extra = bundle_rules(txs, sims, policy)
+    except Exception as e:  # cross-transaction analysis must fail closed like single-tx analysis
+        extra = [_finding("ENGINE_ERROR", f"bundle analysis failed: {type(e).__name__}: {e}",
+                          {"check": "bundle_rules", "error": f"{type(e).__name__}: {e}"})]
     verdict = worst_verdict(*(t.verdict for t in per_tx), verdict_from(extra))
     return BundleReview(verdict, per_tx, extra)

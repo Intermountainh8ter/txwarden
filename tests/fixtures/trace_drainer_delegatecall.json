@@ -1,0 +1,50 @@
+{
+ "description": "Hand-written trace of the 'claim airdrop' drainer pattern with a nested delegatecall: user -> claim contract -> helper -> DELEGATECALL unknown library -> token.transferFrom(user, attacker). Synthetic addresses.",
+ "synthetic": true,
+ "tree": {
+  "type": "CALL",
+  "from": "0x1111111111111111111111111111111111111111",
+  "to": "0xd1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+  "value": "0x0",
+  "gas": "0x5208",
+  "gasUsed": "0x1000",
+  "input": "0x4e71d92d",
+  "output": "0x",
+  "calls": [
+   {
+    "type": "CALL",
+    "from": "0xd1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+    "to": "0xd3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+    "value": "0x0",
+    "gas": "0x5208",
+    "gasUsed": "0x1000",
+    "input": "0x1e83409a",
+    "output": "0x",
+    "calls": [
+     {
+      "type": "DELEGATECALL",
+      "from": "0xd3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+      "to": "0xd2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+      "value": "0x0",
+      "gas": "0x5208",
+      "gasUsed": "0x1000",
+      "input": "0x1e83409a",
+      "output": "0x",
+      "calls": [
+       {
+        "type": "CALL",
+        "from": "0xd3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+        "to": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        "value": "0x0",
+        "gas": "0x5208",
+        "gasUsed": "0x1000",
+        "input": "0x23b872dd0000000000000000000000001111111111111111111111111111111111111111000000000000000000000000dededededededededededededededededededede00000000000000000000000000000000000000000000000000000000000000ff",
+        "output": "0x"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -18,7 +18,7 @@ from typing import Any, Protocol
 
 from .abi import AbiError, decode, decode_call, encode_call
 from .addressbook import AddressBook
-from .effects import WETH, LPIntent, SwapIntent, extract_effects
+from .effects import WETH, LPIntent, SwapIntent, extract_effects, trace_transfers
 from .models import (
     ETH,
     AccountInfo,
@@ -109,6 +109,12 @@ class StaticSimulator:
             res.transfers.append(Transfer(ETH, tx.sender, tx.to, tx.value, kind="eth"))
         res.lp_events = [LPEvent(lp.action, f"{lp.token_a}/{lp.token_b}", float(lp.liquidity),
                                  None, lp.protocol) for lp in eff.lp]
+        res.output_recipients = list(dict.fromkeys(eff.output_recipients))
+        res.incomplete = ["chain_state"]
+        if eff.swaps:
+            res.incomplete.append("swap_state: no pool state without an RPC")
+        if any(lp.action == "remove" for lp in eff.lp):
+            res.incomplete.append("lp_state: pool totals unavailable without an RPC")
         res.labels = {a: n for a, n in self.book.labels().items()
                       if a in res.all_counterparties() or a == tx.to}
         return res
@@ -119,16 +125,37 @@ class StaticSimulator:
 Transport = Callable[[str, list[Any]], Any]
 
 
+_INFRA_HINTS = ("missing trie node", "header not found", "state not available",
+                "historical state", "rate limit", "limit exceeded", "too many requests",
+                "timed out", "timeout", "unauthorized", "forbidden", "invalid api key",
+                "connection", "service unavailable", "bad gateway")
+
+
 class RpcError(RuntimeError):
-    def __init__(self, message: str, code: int | None = None, data: Any = None):
+    """A JSON-RPC failure. ``transport`` marks connectivity/HTTP/format failures (as opposed to a
+    node answering with an error object), which the simulator treats as "no analysis possible"."""
+
+    def __init__(self, message: str, code: int | None = None, data: Any = None,
+                 transport: bool = False):
         super().__init__(message)
-        self.message, self.code, self.data = message, code, data
+        self.message, self.code, self.data, self.transport = message, code, data, transport
 
     @property
     def unsupported(self) -> bool:
         m = self.message.lower()
         return self.code == -32601 or "not supported" in m or "method not found" in m \
             or "does not exist" in m or "unknown method" in m
+
+    @property
+    def infrastructure(self) -> bool:
+        """True when the failure says nothing about the transaction (node down, rate limited,
+        pruned state) so it must not be reported as a revert."""
+        if self.transport or (self.code is not None and 400 <= self.code < 600):  # HTTP status
+            return True
+        if self.data is not None and decode_revert(self.data) is not None:
+            return False
+        m = self.message.lower()
+        return "revert" not in m and any(h in m for h in _INFRA_HINTS)
 
     def revert_reason(self) -> str:
         return decode_revert(self.data) or self.message
@@ -162,11 +189,15 @@ def http_transport(url: str, timeout: float = 15.0) -> Transport:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 out = json.loads(resp.read())
         except urllib.error.HTTPError as e:
-            raise RpcError(f"HTTP {e.code} from {url}", code=e.code) from e
+            raise RpcError(f"HTTP {e.code} from {url}", code=e.code, transport=True) from e
         except urllib.error.URLError as e:
-            raise RpcError(f"cannot reach {url}: {e.reason}") from e
+            raise RpcError(f"cannot reach {url}: {e.reason}", transport=True) from e
+        except (TimeoutError, OSError) as e:
+            raise RpcError(f"cannot reach {url}: {e}", transport=True) from e
+        except ValueError as e:  # not JSON (an HTML error page, a captive portal, ...)
+            raise RpcError(f"{url} did not return JSON: {e}", transport=True) from e
         if not isinstance(out, dict):
-            raise RpcError("malformed JSON-RPC response")
+            raise RpcError("malformed JSON-RPC response", transport=True)
         if "error" in out:
             err = out["error"] or {}
             if isinstance(err, dict):
@@ -190,7 +221,8 @@ class RecordingTransport:
         try:
             result = self.inner(method, params)
         except RpcError as e:
-            rec["error"] = {"code": e.code, "message": e.message, "data": e.data}
+            rec["error"] = {"code": e.code, "message": e.message, "data": e.data,
+                            "transport": e.transport}
             self.records.append(rec)
             raise
         rec["result"] = json.loads(json.dumps(result))
@@ -213,7 +245,8 @@ def replay_transport(path: str | Path) -> Transport:
             raise RpcError(f"no recorded response for {method} {params}", code=-32601)
         if "error" in rec:
             e = rec["error"]
-            raise RpcError(e.get("message", "error"), e.get("code"), e.get("data"))
+            raise RpcError(e.get("message", "error"), e.get("code"), e.get("data"),
+                           bool(e.get("transport", False)))
         return rec["result"]
 
     return call
@@ -316,6 +349,10 @@ class AnvilSimulator:
             self.rpc("eth_call", [call, "latest"])
             res.gas_used = _uint(self.rpc("eth_estimateGas", [call]))
         except RuntimeError as e:  # RpcError or a custom transport's own error
+            if isinstance(e, RpcError) and e.infrastructure:
+                # nothing was learned about the transaction: report that, never "it reverts"
+                res.success, res.error = False, e.message
+                return res
             res.success = False
             res.revert_reason = e.revert_reason() if isinstance(e, RpcError) else str(e)
             if tx.value > 0:
@@ -324,10 +361,21 @@ class AnvilSimulator:
         res.approvals = eff.approvals
         res.operator_approvals = eff.operator_approvals
         res.permits = eff.permits
+        res.output_recipients = list(dict.fromkeys(eff.output_recipients))
         res.transfers = self._with_balances(tx, eff.transfers)
         if tx.value > 0:
             bal = self._try(lambda: _uint(self.rpc("eth_getBalance", [tx.sender, "latest"])))
             res.transfers.append(Transfer(ETH, tx.sender, tx.to, tx.value, bal, kind="eth"))
+
+        if opt.trace:
+            res.call_tree = self._trace(call)
+            if res.call_tree is None:
+                res.incomplete.append("call_trace")
+            else:
+                known = {(t.token, t.recipient, t.amount, t.token_id) for t in res.transfers}
+                extra = [t for t in trace_transfers(tx, res.call_tree, opt.weth)
+                         if (t.token, t.recipient, t.amount, t.token_id) not in known]
+                res.transfers.extend(self._with_balances(tx, extra))
 
         if opt.account_probe:
             targets = res.all_counterparties() | {tx.to}
@@ -336,17 +384,26 @@ class AnvilSimulator:
                 info = self._account(a)
                 if info is not None:
                     res.accounts[a] = info
+            if not all(a in res.accounts for a in targets):
+                res.incomplete.append("account_probe")
 
         if res.success and eff.swaps:
             self._attach_swap(res, eff.swaps[0])
+            if not (res.swap or res.path_swap or res.swap_v3):
+                res.incomplete.append("swap_state: pool state not found for the first swap")
+            elif len(eff.swaps) > 1:
+                res.incomplete.append(
+                    f"swap_state: only the first of {len(eff.swaps)} swaps was assessed")
         if res.success:
             res.lp_events = [self._lp_event(tx, lp) for lp in eff.lp]
+            if any(e.action == "remove" and e.pool_total is None for e in res.lp_events):
+                res.incomplete.append("lp_state: pool total supply unavailable")
         if res.success and opt.honeypot and eff.swaps:
             s = eff.swaps[0]
             if s.token_out.lower() not in opt.known_tokens and s.token_out.lower() != opt.weth:
                 res.honeypot = self._probe_honeypot(tx, s.token_out)
-        if opt.trace:
-            res.call_tree = self._trace(call)
+                if res.honeypot is None:
+                    res.incomplete.append("honeypot_probe")
         return res
 
     # ---- enrichment
