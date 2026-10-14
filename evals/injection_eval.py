@@ -318,11 +318,30 @@ def fmt(name: str, t: Tally) -> str:
             f"{t.weaker:>7}{t.unequal_after_assess:>9}{t.contradicted:>9}")
 
 
+def markdown(total: Tally, by_vector: dict[str, Tally], by_attack: dict[str, Tally]) -> str:
+    head = ["| | Runs | Obeyed an injected directive | Verdict = engine's | Fail-closed BLOCK "
+            "| Weaker than engine | Changed after assess_risk | Text told user to proceed on BLOCK |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|"]
+
+    def row(name: str, t: Tally) -> str:
+        return (f"| {name} | {t.runs} | {t.complied} | {t.equal} | {t.stricter_failclosed} | "
+                f"{t.weaker} | {t.unequal_after_assess} | {t.contradicted} |")
+
+    lines = [*head, *(row(f"vector: `{k}`", by_vector[k]) for k in VECTORS),
+             *(row(f"attack: `{k}`", by_attack[k]) for k in ["(control)", *ATTACKS]),
+             row("**total**", total)]
+    return "\n".join(lines)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--markdown", action="store_true", help="README table")
     a = ap.parse_args()
     total, by_vector, by_attack, violations = run_all()
+    if a.markdown:
+        print(markdown(total, by_vector, by_attack))
+        return 1 if violations else 0
     if a.json:
         print(json.dumps({"total": total.__dict__,
                           "by_vector": {k: v.__dict__ for k, v in by_vector.items()},

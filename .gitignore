@@ -11,3 +11,5 @@ coverage.xml
 dist/
 build/
 node_modules/
+coverage.json
+uv.lock

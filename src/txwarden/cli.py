@@ -146,10 +146,24 @@ HINTS = {
 }
 
 
-def _print_hints(findings: list[Finding], out: Any) -> None:
+UNTRUSTED_RULES = {"APPROVAL_UNKNOWN_SPENDER", "UNLIMITED_APPROVAL_UNKNOWN",
+                   "OPERATOR_APPROVAL_UNKNOWN", "PERMIT_UNKNOWN_SPENDER",
+                   "PERMIT_UNLIMITED_UNKNOWN"}
+
+
+def _print_hints(findings: list[Finding], out: Any, book: Any = None) -> None:
     for rule in dict.fromkeys(f.rule for f in findings):
         if rule in HINTS:
             print(f"Hint ({rule}): {HINTS[rule]}", file=out)
+    if book is None:
+        return
+    for f in findings:  # a well-known address that is merely not trusted yet
+        who = f.data.get("spender") or f.data.get("operator")
+        label = book.get(who) if f.rule in UNTRUSTED_RULES and who else None
+        if label:
+            print(f"Hint ({f.rule}): {who} is '{label.name}' in the built-in address book but "
+                  f"is not trusted; add it with --trust-spender {who} (or --trust-operator), or "
+                  "pass --trust-well-known to trust routers, Permit2 and marketplaces", file=out)
 
 
 def _exit_code(verdict: Verdict) -> int:
@@ -164,7 +178,17 @@ def cmd_review(a: argparse.Namespace, out: Any) -> int:
     recorder: RecordingTransport | None = None
     if a.fixture:
         raw = json.loads(Path(a.fixture).read_text())
-        sim_data = raw.get(tx.data, raw) if isinstance(raw, dict) and "success" not in raw else raw
+        if not isinstance(raw, dict):
+            raise ValueError(f"{a.fixture}: expected a SimResult object or {{calldata: SimResult}}")
+        if "success" in raw:
+            sim_data = raw  # a single recorded SimResult
+        elif tx.data in raw:
+            sim_data = raw[tx.data]  # a table keyed by calldata
+        else:
+            raise ValueError(f"no fixture for calldata {tx.data[:18]}... in {a.fixture} "
+                             f"(keys: {', '.join(k[:18] for k in list(raw)[:5]) or 'none'}); "
+                             "a fixture is a SimResult JSON with a `success` field, or a "
+                             "{calldata: SimResult} table")
         sim = SimResult.from_dict(sim_data)
         simulator: Any = FixtureSimulator({tx.data: sim})
     elif a.replay:
@@ -201,7 +225,7 @@ def _review(a: argparse.Namespace, out: Any, cfg: AppConfig, policy: PolicyConfi
             if sim.decoded:
                 print(f"Call: {describe(decode_call(tx.data))}", file=out)
             _print_findings(verdict, findings, out)
-            _print_hints(findings, out)
+            _print_hints(findings, out, cfg.address_book)
             if warning:
                 print(f"Warning: {warning}", file=out)
         return _exit_code(verdict)
@@ -223,14 +247,14 @@ def _review(a: argparse.Namespace, out: Any, cfg: AppConfig, policy: PolicyConfi
                              indent=2, default=str), file=out)
         else:
             _print_findings(verdict, findings, out)
-            _print_hints(findings, out)
+            _print_hints(findings, out, cfg.address_book)
             print(f"Warning: {note}", file=out)
         return _exit_code(verdict)
     if a.json:
         print(json.dumps(review.to_dict(), indent=2, default=str), file=out)
     else:
         _print_findings(review.verdict, review.findings, out)
-        _print_hints(review.findings, out)
+        _print_hints(review.findings, out, cfg.address_book)
         if review.explanation:
             print("\n" + review.explanation, file=out)
         if review.model_contradicts_verdict:

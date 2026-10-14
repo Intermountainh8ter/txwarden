@@ -112,7 +112,7 @@ def test_review_bundle_static_and_error_paths():
 def test_failures_fail_closed_with_a_block_verdict():
     s = MCPServer()
     out, is_error = call(s, "review_transaction", {"tx": {"sender": U}})  # missing `to`
-    assert is_error and out["verdict"] == "BLOCK" and "KeyError" in out["error"]
+    assert is_error and out["verdict"] == "BLOCK" and "missing to" in out["error"]
     out, is_error = call(s, "review_transaction", {"tx": TX, "policy": {"bogus": 1}})
     assert is_error and out["verdict"] == "BLOCK"
     out, is_error = call(s, "no_such_tool", {})
@@ -160,3 +160,11 @@ def test_main_entry_point_reads_config_and_rpc_flag(tmp_path, monkeypatch):
     assert main(["--config", str(cfg)]) == 0
     payload = json.loads(json.loads(out.getvalue())["result"]["content"][0]["text"])
     assert payload["verdict"] == "ALLOW"  # the config trusted EVIL as a spender
+
+
+def test_main_reports_a_bad_config_on_stderr_and_exits_3(tmp_path, capsys):
+    bad = tmp_path / "bad.toml"
+    bad.write_text("policy = = =")
+    assert main(["--config", str(bad)]) == 3
+    assert "txwarden-mcp: error: cannot load config" in capsys.readouterr().err
+    assert main(["--config", str(tmp_path / "missing.toml")]) == 3

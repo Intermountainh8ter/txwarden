@@ -1,0 +1,11 @@
+.git
+.github
+**/__pycache__
+*.egg-info
+.pytest_cache
+.ruff_cache
+.coverage
+coverage.json
+evals/*.jsonl
+tests
+docs/diagrams/*.svg
