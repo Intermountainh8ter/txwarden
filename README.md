@@ -235,10 +235,11 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**719 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**720 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
+Line coverage of `src/txwarden`: **98.8%** (3070/3106 statements); with branches **98.1%**. Lowest module: `amm.py` at 95.7%. CI fails below 90%.
 <!-- END coverage -->
 
 What the tests include beyond unit tests: seeded randomised invariants (constant-product `k`
@@ -287,12 +288,12 @@ come from a different pool-size regime. Thresholds may be tuned on `dev` only.
 
 Categories below 100% (all splits):
 
-| Category | Correct / total |
-|---|---:|
-| `swap_impact_band` | 43/56 |
-| `swap_loose` | 19/28 |
-| `swap_mid_trade_slippage_band` | 38/56 |
-| `swap_slippage_band` | 34/56 |
+| Category | Correct / total | Accuracy |
+|---|---:|---:|
+| `swap_impact_band` | 43/56 | 0.768 |
+| `swap_loose` | 19/28 | 0.679 |
+| `swap_mid_trade_slippage_band` | 38/56 | 0.679 |
+| `swap_slippage_band` | 34/56 | 0.607 |
 <!-- END eval-table -->
 
 How to read this honestly:
@@ -301,16 +302,13 @@ How to read this honestly:
   **Over-BLOCK** = the engine blocked what a reviewer would allow or merely flag.
   "Right reason" = when the verdict was right, one of the rules the template names fired.
 * **Accuracy is below the original release's 0.984 on four categories**: `swap_loose`,
-  `swap_impact_band`, `swap_slippage_band` and `swap_mid_trade_slippage_band` (table above). They
-  are all swap-threshold disagreements: the template says "block from 3% slippage" or "warn from
-  3% price impact" and the shipped defaults (5%, 5%) are laxer; and for a 1-2% trade at the wallet
-  default 0.5% tolerance the engine's 30 bps sandwich threshold warns where the template allows.
-  The overall number (0.977) is also below 0.984 because the new set deliberately includes
-  gray-area categories. On the original 122-case set the engine still scores exactly what it did:
-  <!-- BEGIN legacy-eval -->
-`evals/cases_v1.jsonl` (122 cases, 16 categories): accuracy **0.984**, BLOCK precision 1.000, BLOCK recall 0.958, unsafe ALLOW 0.
-<!-- END legacy-eval -->
-* **Every other group is at 100%, and that is the weak part of this evidence.** The templates
+  `swap_impact_band`, `swap_slippage_band` and `swap_mid_trade_slippage_band` (last table above,
+  with their accuracies). They are all swap-threshold disagreements. The template says "block from
+  3% slippage" or "warn from 3% price impact" and the shipped defaults (5% and 5%) are laxer; and for
+  a 1-2% trade the template allows the wallet-default 0.5% tolerance and warns above it, while the
+  engine warns from 30 bps of extractable value and blocks from 100 bps. The overall number
+  (0.977) is also below 0.984 because the new set deliberately includes gray-area categories.
+* **Every other category is at 100%, and that is the weak part of this evidence.** The templates
   were written next to the rules, so near-perfect agreement shows the rules behave as documented
   under varied inputs (a strong regression net) and says almost nothing about recall on attacks
   nobody wrote a template for. There is no real-world labelled data here.
@@ -321,6 +319,17 @@ How to read this honestly:
   denylisted spender was reported as BLOCK; "bounded" approvals of 2^128 to 2^255 (more than any
   token's supply) were only a WARN. The original release's two misses are the `swap_loose` 3-5%
   band, still there.
+
+<!-- BEGIN strict-eval -->
+All 14 unsafe ALLOWs and 12 over-BLOCKs fall in the `gray_area` group; outside it (2296 cases) there are 0 unsafe ALLOWs and 0 over-BLOCKs, accuracy 0.996.
+<!-- END strict-eval -->
+
+On the original 122-case set (kept as `evals/cases_v1.jsonl`, scored by the same engine and
+code) the result is unchanged from the first release:
+
+<!-- BEGIN legacy-eval -->
+`evals/cases_v1.jsonl` (122 cases, 16 categories): accuracy **0.984**, BLOCK precision 1.000, BLOCK recall 0.958, unsafe ALLOW 0.
+<!-- END legacy-eval -->
 
 ### Threshold sweeps
 
@@ -379,10 +388,10 @@ sandwich_warn_bps (default 30)
 <!-- END sweeps -->
 
 On this label set the best single-knob changes on `dev` are `slippage_block` 0.05 to 0.03 and
-`impact_warn_bps` 500 to 300, and both also improve `heldout`; scaling every swap threshold
-together is a worse trade. The defaults were **not** changed to fit the labels: whether "3%
-impact" should warn is a product decision that a synthetic set cannot settle. Tune them for your
-own risk appetite.
+`impact_warn_bps` 500 to 300, and both also improve `heldout`. Scaling all six swap thresholds by
+0.75 also helps on `dev` but gains little on `heldout` and doubles its over-BLOCKs (the `k=0.75`
+row). The defaults were **not** changed to fit the labels: whether "3% impact" should warn is a
+product decision that a synthetic set cannot settle. Tune them for your own risk appetite.
 
 ### Prompt-injection evaluation
 

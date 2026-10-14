@@ -255,8 +255,10 @@ def markdown(all_r: Result, dev: Result, held: Result, n_cat: int) -> str:
     lines += [f"| {g} | {pct(oks)} | {sum(oks) / len(oks):.3f} |"
               for g, oks in sorted(all_r.per_group.items())]
     below = sorted((c, oks) for c, oks in all_r.per_cat.items() if not all(oks))
-    lines += ["", "Categories below 100% (all splits):", "", "| Category | Correct / total |", "|---|---:|"]
-    lines += [f"| `{c}` | {pct(oks)} |" for c, oks in below] or ["| (none) | |"]
+    lines += ["", "Categories below 100% (all splits):", "",
+              "| Category | Correct / total | Accuracy |", "|---|---:|---:|"]
+    lines += [f"| `{c}` | {pct(oks)} | {sum(oks) / len(oks):.3f} |" for c, oks in below] or [
+        "| (none) | | |"]
     return "\n".join(lines)
 
 

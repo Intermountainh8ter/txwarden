@@ -12,6 +12,7 @@ that these blocks would have corrected, and the numbers cannot be typed by hand.
     rule-counts      one sentence with the rule counts
     eval-table       tables from ``evals/run_evals.py --markdown`` on evals/cases.jsonl
     legacy-eval      the original 122-case set
+    strict-eval      scores outside the deliberately ambiguous gray_area group
     sweeps           threshold sweeps (dev vs held-out)
     injection-table  ``evals/injection_eval.py --markdown``
     cli-example      real output of `txwarden review examples/approve_unlimited.json --no-llm`
@@ -63,6 +64,16 @@ def legacy_eval() -> str:
     p, rc = r.block_pr()
     return (f"`evals/cases_v1.jsonl` ({r.n} cases, 16 categories): accuracy **{r.accuracy:.3f}**, "
             f"BLOCK precision {p:.3f}, BLOCK recall {rc:.3f}, unsafe ALLOW {r.unsafe_allow}.")
+
+
+def strict_eval() -> str:
+    run = load("run_evals")
+    cases = run.load_cases(ROOT / "evals" / "cases.jsonl")
+    r_all = run.evaluate(run.prepare(cases))
+    strict = run.evaluate(run.prepare([c for c in cases if c["group"] != "gray_area"]))
+    return (f"All {r_all.unsafe_allow} unsafe ALLOWs and {r_all.over_block} over-BLOCKs fall in the "
+            f"`gray_area` group; outside it ({strict.n} cases) there are {strict.unsafe_allow} "
+            f"unsafe ALLOWs and {strict.over_block} over-BLOCKs, accuracy {strict.accuracy:.3f}.")
 
 
 def sweeps() -> str:
@@ -189,7 +200,8 @@ def mermaid(name: str):
 FLOWCHART_BLOCKS = {"usage-mmd": mermaid("usage"), "troubleshooting-mmd": mermaid("troubleshooting")}
 BLOCKS = {"rules-table": markdown_summary_table, "rule-counts": rule_counts,
           "cli-example": cli_example, "cli-bundle": cli_bundle,
-          "eval-table": eval_table, "legacy-eval": legacy_eval, "sweeps": sweeps,
+          "eval-table": eval_table, "legacy-eval": legacy_eval, "strict-eval": strict_eval,
+          "sweeps": sweeps,
           "injection-table": injection_table, "test-count": test_count, "coverage": coverage}
 # the coverage block needs a prior `pytest --cov --cov-report=json`; it is not checked in --check
 CHECK_SKIP = {"coverage"}

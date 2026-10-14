@@ -111,6 +111,13 @@ def test_threshold_prose_in_the_readme_matches_the_sweeps():
         assert best[2].accuracy > default[2].accuracy, title
     text = (ROOT / "README.md").read_text()
     assert "`slippage_block` 0.05 to 0.03" in text and "`impact_warn_bps` 500 to 300" in text
+    # "scaling all six swap thresholds by 0.75 ... gains little on heldout and doubles its over-BLOCKs"
+    default_label, variants = run.SWEEPS["swap thresholds x k (all six scaled together; k>1 is looser)"]
+    by_label = {label: (run.evaluate(dev, ov), run.evaluate(held, ov)) for label, ov in variants}
+    (_, base_held), (k_dev, k_held) = by_label["k=1"], by_label["k=0.75"]
+    assert k_dev.accuracy > by_label["k=1"][0].accuracy
+    assert k_held.accuracy - base_held.accuracy < 0.005
+    assert k_held.over_block == 2 * base_held.over_block
 
 
 def test_no_model_identifiers_in_the_tree_except_the_configurable_default():
@@ -264,3 +271,17 @@ def test_pyproject_pins_lint_rules_and_coverage_floor():
     assert cfg["tool"]["coverage"]["report"]["fail_under"] >= 90
     assert "pytest-cov" in " ".join(cfg["project"]["optional-dependencies"]["dev"])
     assert cfg["project"]["dependencies"] == []  # zero runtime dependencies is a design rule
+
+
+def test_readme_names_exactly_the_categories_that_miss():
+    spec = importlib.util.spec_from_file_location("_re2", ROOT / "evals" / "run_evals.py")
+    run = importlib.util.module_from_spec(spec)
+    sys.modules["_re2"] = run
+    spec.loader.exec_module(run)
+    res = run.evaluate(run.prepare(run.load_cases(ROOT / "evals" / "cases.jsonl")))
+    missed = {c for c, oks in res.per_cat.items() if not all(oks)}
+    text = (ROOT / "README.md").read_text()
+    assert len(missed) == 4 and "on four categories" in text
+    for name in missed:
+        assert f"`{name}`" in text
+    assert round(res.accuracy, 3) < 0.984  # the README says the overall number is below 0.984
