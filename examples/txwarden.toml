@@ -1,0 +1,19 @@
+# Example configuration. Copy next to your transactions and pass --config txwarden.toml
+# rpc_url = "http://127.0.0.1:8545"      # an Anvil/Hardhat/Geth fork; leave unset for static review
+trust_well_known = false                 # true: trust routers/Permit2/marketplaces in the built-in book
+
+[policy]
+expected_chain_id = 1
+trusted_spenders = ["0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"]   # Uniswap V2 Router02
+trusted_recipients = ["0x2222222222222222222222222222222222222222"]
+denylist = ["0xdead00000000000000000000000000000000beef"]
+slippage_warn = 0.0075
+slippage_block = 0.05
+sandwich_block_bps = 100
+
+[policy.address_book]
+"0x4444444444444444444444444444444444444444" = "cold wallet"
+
+[simulator]
+honeypot = true
+trace = true

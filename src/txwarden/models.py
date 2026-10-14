@@ -5,12 +5,14 @@ recorded as fixtures and replayed offline.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from enum import Enum, IntEnum
 from typing import Any
 
 ETH = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"  # sentinel token address for native ETH
+_ADDRESS_RE = re.compile(r"0x[0-9a-fA-F]{40}")
 
 
 class Severity(IntEnum):
@@ -43,10 +45,18 @@ class Tx:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Tx:
+        missing = [k for k in ("sender", "to") if not d.get(k)]
+        if missing:
+            raise ValueError(f"transaction JSON is missing {' and '.join(missing)} "
+                             "(expected {sender, to, data, value, chain_id})")
+        for k in ("sender", "to"):
+            if not _ADDRESS_RE.fullmatch(str(d[k])):
+                raise ValueError(f"{k} {str(d[k])[:48]!r} is not a 20-byte hex address")
+        data = d.get("data") or "0x"  # not validated: malformed calldata decodes as "malformed"
         return cls(
             sender=str(d["sender"]).lower(),
             to=str(d["to"]).lower(),
-            data=d.get("data") or "0x",
+            data=data,
             value=int(d.get("value", 0)),
             chain_id=int(d.get("chain_id", 1)),
         )

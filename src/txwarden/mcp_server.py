@@ -24,7 +24,7 @@ from typing import IO, Any
 from . import __version__
 from .abi import decode_call, describe
 from .batch import assess_bundle
-from .config import AppConfig, load_config
+from .config import AppConfig, ConfigError, load_config
 from .models import SimResult, Tx, Verdict
 from .risk import RULES, PolicyConfig, assess
 from .ruledocs import explain_dict
@@ -249,7 +249,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--rpc", default=None, help="fork RPC URL (optional)")
     p.add_argument("--config", default=None, help="TOML config path")
     a = p.parse_args(argv)
-    cfg = load_config(a.config) if a.config else AppConfig()
+    try:
+        cfg = load_config(a.config) if a.config else AppConfig()
+    except (ConfigError, OSError, ValueError) as e:
+        # stdout belongs to the protocol; a client sees only "server exited", so say why on stderr
+        print(f"txwarden-mcp: error: cannot load config {a.config}: {e}", file=sys.stderr)
+        return 3
     if a.rpc:
         cfg.rpc_url = a.rpc
     return MCPServer(cfg).serve()

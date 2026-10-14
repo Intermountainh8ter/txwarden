@@ -164,7 +164,17 @@ def cmd_review(a: argparse.Namespace, out: Any) -> int:
     recorder: RecordingTransport | None = None
     if a.fixture:
         raw = json.loads(Path(a.fixture).read_text())
-        sim_data = raw.get(tx.data, raw) if isinstance(raw, dict) and "success" not in raw else raw
+        if not isinstance(raw, dict):
+            raise ValueError(f"{a.fixture}: expected a SimResult object or {{calldata: SimResult}}")
+        if "success" in raw:
+            sim_data = raw  # a single recorded SimResult
+        elif tx.data in raw:
+            sim_data = raw[tx.data]  # a table keyed by calldata
+        else:
+            raise ValueError(f"no fixture for calldata {tx.data[:18]}... in {a.fixture} "
+                             f"(keys: {', '.join(k[:18] for k in list(raw)[:5]) or 'none'}); "
+                             "a fixture is a SimResult JSON with a `success` field, or a "
+                             "{calldata: SimResult} table")
         sim = SimResult.from_dict(sim_data)
         simulator: Any = FixtureSimulator({tx.data: sim})
     elif a.replay:

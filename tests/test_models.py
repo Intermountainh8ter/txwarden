@@ -97,3 +97,16 @@ def test_transfer_defaults_and_finding_round_trip():
     assert Finding.from_dict(f.to_dict()) == f and f.to_dict()["severity"] == "HIGH"
     with pytest.raises(KeyError):
         Finding.from_dict({"rule": "x", "severity": "NOPE", "message": ""})
+
+
+@pytest.mark.parametrize("raw,fragment", [
+    ({"sender": U}, "missing to"),
+    ({"to": TOKEN}, "missing sender"),
+    ({}, "missing sender and to"),
+    ({"sender": "0x1234", "to": TOKEN}, "sender '0x1234' is not a 20-byte hex address"),
+    ({"sender": U, "to": "vitalik.eth"}, "to 'vitalik.eth'"),
+    ({"sender": U, "to": "0x" + "zz" * 20}, "20-byte hex address"),
+])
+def test_tx_validation_messages_name_the_problem(raw, fragment):
+    with pytest.raises(ValueError, match=fragment):
+        Tx.from_dict(raw)

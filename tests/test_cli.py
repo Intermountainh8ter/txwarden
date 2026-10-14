@@ -273,3 +273,20 @@ def test_llm_unavailable_falls_back_to_the_deterministic_verdict(tmp_path, monke
     assert code == 2 and payload["verdict"] == "BLOCK" and "language model unavailable" in payload[
         "warning"]
     capsys.readouterr()
+
+
+def test_fixture_problems_say_what_is_wrong(tmp_path, capsys):
+    f = tx_file(tmp_path, "0xaa")
+    keyed = write(tmp_path, "keyed.json", {"0xbb": SimResult(True).to_dict()})
+    assert main(["review", f, "--fixture", keyed, "--no-llm"], io.StringIO()) == 3
+    err = capsys.readouterr().err
+    assert "no fixture for calldata 0xaa" in err and "0xbb" in err and "`success`" in err
+    not_obj = write(tmp_path, "list.json", [1])
+    assert main(["review", f, "--fixture", not_obj], io.StringIO()) == 3
+    assert "expected a SimResult object" in capsys.readouterr().err
+
+
+def test_bad_transaction_input_says_what_is_wrong(tmp_path, capsys):
+    f = write(tmp_path, "tx.json", {"sender": U})
+    assert main(["review", f, "--no-llm"], io.StringIO()) == 3
+    assert "transaction JSON is missing to" in capsys.readouterr().err

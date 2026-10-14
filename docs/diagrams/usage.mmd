@@ -1,0 +1,30 @@
+flowchart TD
+    A["1. Install<br/>pip install txwarden<br/>optional: pip install 'txwarden[llm]'"]
+    B["2. Configure txwarden.toml<br/>rpc_url, trusted_spenders, trusted_recipients,<br/>denylist, expected_chain_id"]
+    C{"Fork RPC available?"}
+    D["3a. Run with the chain<br/>txwarden review tx.json --config txwarden.toml --no-llm<br/>(several txs: txwarden batch bundle.json)"]
+    D2["3b. Run statically, no RPC<br/>txwarden review tx.json --no-llm<br/>approvals, permits, transfers fully checked;<br/>swaps and liquidity removal come back WARN<br/>(ANALYSIS_INCOMPLETE)"]
+    E["4. Read the verdict line and findings<br/>--json for scripts<br/>txwarden explain RULE for any finding"]
+    F{"5. Exit code?"}
+    G["0 = ALLOW<br/>Sign if the call matches what you meant to do.<br/>MEDIUM and INFO findings are notes, not stops."]
+    H["2 and Verdict: WARN<br/>Understand every finding first. Fix the transaction, or add<br/>the address to trusted_* only after verifying it somewhere else."]
+    I["2 and Verdict: BLOCK<br/>Do not sign. If you already signed something similar,<br/>revoke the allowance."]
+    J["3 = input or config error<br/>Read the 'error:' line, then see the troubleshooting chart."]
+    A --> B --> C
+    C -- "yes, e.g. anvil --fork-url $ETH_RPC_URL" --> D
+    C -- "no" --> D2
+    D --> E
+    D2 --> E
+    E --> F
+    F -- "0" --> G
+    F -- "2, WARN" --> H
+    F -- "2, BLOCK" --> I
+    F -- "3" --> J
+    classDef ok fill:#d8f3dc,stroke:#2d6a4f,color:#1b4332
+    classDef warn fill:#fff3bf,stroke:#b08900,color:#5c4800
+    classDef bad fill:#ffd6d6,stroke:#b00020,color:#5c0011
+    classDef neutral fill:#e7f0fa,stroke:#3b6ea5,color:#12263f
+    class G ok
+    class H warn
+    class I,J bad
+    class A,B,C,D,D2,E,F neutral
