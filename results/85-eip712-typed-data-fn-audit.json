@@ -1,0 +1,107 @@
+{
+  "false_negative_rate": {
+    "by_variant": {
+      "domain_mismatch": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "seaport_free_listing": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "unbounded_permit": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      }
+    },
+    "max_variant": 1.0,
+    "overall": 1.0,
+    "overall_detail": {
+      "k": 120,
+      "n": 120,
+      "rate": 1.0,
+      "wilson95": [
+        0.9689797289440706,
+        1.0
+      ]
+    }
+  },
+  "false_positive_rate": {
+    "by_variant": {
+      "domain_mismatch": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "seaport_free_listing": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "unbounded_permit": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      }
+    },
+    "overall": 0.0,
+    "overall_detail": {
+      "k": 0,
+      "n": 120,
+      "rate": 0.0,
+      "wilson95": [
+        0.0,
+        0.031020271055929513
+      ]
+    }
+  },
+  "n_cases": 240,
+  "provenance": {
+    "command": "python3 evals/audit_eip712_typed_data.py --seed 7 --out results/85-eip712-typed-data-fn-audit.json",
+    "data_sources": [
+      {
+        "license": "MIT (component licence)",
+        "url": "constructed locally (no external data)"
+      }
+    ],
+    "hardware": "cpu",
+    "seeds": [
+      7
+    ],
+    "started_at": "2026-10-27T07:34:02Z",
+    "wall_s": 0.009
+  },
+  "rules_fired_malicious": [],
+  "set_label": "constructed, SIMULATED: not real transactions, not a public labelled release",
+  "typed_data_input_path": "none: Tx has no typed-data field; cases use a constructed 0x1901 payload in Tx.data",
+  "verdict_counts": {
+    "ALLOW": 240
+  }
+}

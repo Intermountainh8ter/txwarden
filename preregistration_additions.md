@@ -36,3 +36,15 @@ Metric: /false_negative_rate/overall (FN = engine verdict ALLOW on a malicious c
 Expected: at least 0.80, every variant at least 0.80.
 Falsifier: overall false-negative rate below 0.80, or any single variant below 0.80, or overall
 false-positive rate above 0.10.
+
+## 2026-10-27T07:34:02Z eip712-typed-data-fn-audit proposal:acd476fdca5f7db8b7c3b35be1fb1dfb63fdf68a651a4025289210de6d88cef9
+
+Set: constructed and SIMULATED (not real signing requests, not a public labelled release). Tx has
+no typed-data field, so each request is presented through the closest Tx representation (a
+constructed 0x1901 payload in data of a Tx to the verifying contract).
+Hypothesis: the rule engine cannot flag malicious off-chain EIP-712 requests (free Seaport
+listings, unbounded permits, domain-mismatched requests); the overall false-negative rate on
+malicious constructed cases is at least 0.5.
+Metric: /false_negative_rate/overall (FN = engine verdict ALLOW on a malicious case).
+Expected: at least 0.50.
+Falsifier: overall false-negative rate below 0.50 with the Wilson interval upper bound under 0.5.
