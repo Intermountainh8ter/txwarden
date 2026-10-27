@@ -22,3 +22,17 @@ Metric: /false_negative_rate/overall (FN = engine verdict ALLOW on a malicious c
 Expected: at most 0.05, no variant above 0.05.
 Falsifier: overall false-negative rate above 0.05, or any single variant above 0.05, or overall
 false-positive rate above 0.10.
+
+## 2026-10-27T00:52:38Z intent-swap-fn-audit proposal:87cee481540301ed73de1c876078ae9be12085685312ad720c0e0dc54c8fa347
+
+Set: constructed and SIMULATED (not real on-chain transactions, not a public labelled release).
+Hypothesis: the engine has no intent-based-swap handling in src, so on constructed malicious
+intent-swap cases (CoW-style setPreSignature, UniswapX-style execute, ERC-4337 handleOps-style
+execution, with an unknown receiver or a zero or far-below-fair minimum-out) the unsafe-ALLOW
+false-negative rate is at least 0.80 for every intent variant, while the false-positive rate
+(WARN or BLOCK) on matched benign orders (receiver equals signer, minimum-out within 1 percent of
+fair value) is at most 0.10.
+Metric: /false_negative_rate/overall (FN = engine verdict ALLOW on a malicious case).
+Expected: at least 0.80, every variant at least 0.80.
+Falsifier: overall false-negative rate below 0.80, or any single variant below 0.80, or overall
+false-positive rate above 0.10.
