@@ -235,7 +235,7 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**724 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**728 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
@@ -339,6 +339,17 @@ cases are modelled as an authorization-only transaction or a call with unrecogni
 Unsafe-ALLOW false-negative rate on malicious cases (results/72-7702-permit2-fn-audit.json):
 overall 0.5 (120 of 240), EIP-7702 1.0 (120 of 120), Permit2 0.0 (0 of 120). Reproduce with
 `python3 evals/audit_7702_permit2.py --seed 7 --out results/72-7702-permit2-fn-audit.json`.
+
+### Approval-variant false-negative audit (constructed, SIMULATED)
+
+`evals/audit_approval_variants.py` runs the engine on a seeded, locally constructed set of five
+approval variants (increaseAllowance, setApprovalForAll, DAI-style permit, Permit2 batch permit,
+Permit2 approve); these are not real transactions. Unsafe-ALLOW false-negative rate on malicious
+cases (results/73-approval-variants-fn-audit.json): overall 0.0 (0 of 200), 0.0 for every variant.
+The false-positive rate on matched benign cases is 0.2 (40 of 200), above the pre-registered 0.10
+limit, so the pre-registered hypothesis is refuted on that clause: all 40 are the Permit2 batch
+permit controls, which this set built with a far-future expiry. Reproduce with
+`python3 evals/audit_approval_variants.py --seed 7 --out results/73-approval-variants-fn-audit.json`.
 
 ### Threshold sweeps
 

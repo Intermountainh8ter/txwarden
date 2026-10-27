@@ -1,0 +1,149 @@
+{
+  "false_negative_rate": {
+    "by_variant": {
+      "dai_permit": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "increaseAllowance": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "permit2_approve": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "permit2_batch_permit": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "setApprovalForAll": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      }
+    },
+    "max_variant": 0.0,
+    "overall": 0.0,
+    "overall_detail": {
+      "k": 0,
+      "n": 200,
+      "rate": 0.0,
+      "wilson95": [
+        0.0,
+        0.018846005918320894
+      ]
+    }
+  },
+  "false_positive_rate": {
+    "by_variant": {
+      "dai_permit": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "increaseAllowance": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "permit2_approve": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "permit2_batch_permit": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "setApprovalForAll": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      }
+    },
+    "overall": 0.2,
+    "overall_detail": {
+      "k": 40,
+      "n": 200,
+      "rate": 0.2,
+      "wilson95": [
+        0.15045120743928825,
+        0.26085639611170436
+      ]
+    }
+  },
+  "n_cases": 400,
+  "provenance": {
+    "command": "python3 evals/audit_approval_variants.py --seed 7 --out results/73-approval-variants-fn-audit.json",
+    "data_sources": [
+      {
+        "license": "MIT (component licence)",
+        "url": "constructed locally (no external data)"
+      }
+    ],
+    "hardware": "cpu",
+    "seeds": [
+      7
+    ],
+    "started_at": "2026-10-27T00:46:50Z",
+    "wall_s": 0.252
+  },
+  "rules_fired_malicious": [
+    "OPERATOR_APPROVAL_UNKNOWN",
+    "PERMIT_FAR_DEADLINE",
+    "PERMIT_UNLIMITED_UNKNOWN",
+    "UNLIMITED_APPROVAL_UNKNOWN"
+  ],
+  "set_label": "constructed, SIMULATED: not real transactions, not a public labelled release",
+  "verdict_counts": {
+    "ALLOW": 160,
+    "BLOCK": 200,
+    "WARN": 40
+  }
+}
