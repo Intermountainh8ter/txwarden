@@ -1,0 +1,125 @@
+{
+  "false_negative_rate": {
+    "by_kind": {
+      "approve_bounded_unknown": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "approve_unlimited_unknown": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "authorization_only": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "delegate_call": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "permit_unlimited_unknown": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.08762453925039232
+        ]
+      },
+      "sweeper_call": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      }
+    },
+    "eip7702": {
+      "k": 120,
+      "n": 120,
+      "rate": 1.0,
+      "wilson95": [
+        0.9689797289440706,
+        1.0
+      ]
+    },
+    "overall": 0.5,
+    "overall_detail": {
+      "k": 120,
+      "n": 240,
+      "rate": 0.5,
+      "wilson95": [
+        0.43724155475169957,
+        0.5627584452483004
+      ]
+    },
+    "permit2": {
+      "k": 0,
+      "n": 120,
+      "rate": 0.0,
+      "wilson95": [
+        0.0,
+        0.031020271055929513
+      ]
+    }
+  },
+  "false_positive_rate": {
+    "k": 0,
+    "n": 120,
+    "rate": 0.0,
+    "wilson95": [
+      0.0,
+      0.031020271055929513
+    ]
+  },
+  "n_cases": 360,
+  "provenance": {
+    "command": "python3 evals/audit_7702_permit2.py --seed 7 --out results/72-7702-permit2-fn-audit.json",
+    "data_sources": [
+      {
+        "license": "MIT (component licence)",
+        "url": "constructed locally (no external data)"
+      }
+    ],
+    "hardware": "cpu",
+    "seeds": [
+      7
+    ],
+    "started_at": "2026-10-27T00:39:20Z",
+    "wall_s": 0.149
+  },
+  "rules_fired_malicious": [
+    "APPROVAL_UNKNOWN_SPENDER",
+    "PERMIT_FAR_DEADLINE",
+    "PERMIT_UNLIMITED_UNKNOWN",
+    "UNLIMITED_APPROVAL_UNKNOWN"
+  ],
+  "set_label": "constructed, SIMULATED: not real transactions, not a public labelled release",
+  "verdict_counts": {
+    "ALLOW": 240,
+    "BLOCK": 80,
+    "WARN": 40
+  }
+}

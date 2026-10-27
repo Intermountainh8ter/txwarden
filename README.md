@@ -235,7 +235,7 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**719 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**724 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
@@ -330,6 +330,15 @@ code) the result is unchanged from the first release:
 <!-- BEGIN legacy-eval -->
 `evals/cases_v1.jsonl` (122 cases, 16 categories): accuracy **0.984**, BLOCK precision 1.000, BLOCK recall 0.958, unsafe ALLOW 0.
 <!-- END legacy-eval -->
+
+### EIP-7702 and Permit2 false-negative audit (constructed, SIMULATED)
+
+`evals/audit_7702_permit2.py` runs the engine on a seeded, locally constructed set; these are not
+real transactions and not a public labelled release. `Tx` has no authorization-list field, so 7702
+cases are modelled as an authorization-only transaction or a call with unrecognised calldata.
+Unsafe-ALLOW false-negative rate on malicious cases (results/72-7702-permit2-fn-audit.json):
+overall 0.5 (120 of 240), EIP-7702 1.0 (120 of 120), Permit2 0.0 (0 of 120). Reproduce with
+`python3 evals/audit_7702_permit2.py --seed 7 --out results/72-7702-permit2-fn-audit.json`.
 
 ### Threshold sweeps
 
