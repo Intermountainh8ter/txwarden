@@ -17,15 +17,15 @@
 TxWarden: open-source pre-signature checker for Ethereum txs. Decodes calldata, simulates on a fork,
 runs deterministic rules (approvals, setApprovalForAll, hidden swap recipients, honeypots, V3
 sandwich math) -> ALLOW/WARN/BLOCK. Optional LLM explains but can't change the verdict. Synthetic
-evals only; live-node path not yet run against a real node. Feedback welcome: <repository URL>
+evals only; live-node path not yet run against a real node. Feedback welcome: https://github.com/Intermountainh8ter/txwarden
 
 ## 2. Security channel, about 280 characters
 
 Looking for feedback on a small OSS tx reviewer: 55 rules, fail-closed, verdict computed by code
 so prompt injection can't move it (tested with a model that obeys everything it reads). Honest
-caveats in the README: synthetic data, no real-node run yet, no EIP-712. <repository URL>
+caveats in the README: synthetic data, no real-node run yet, no EIP-712. https://github.com/Intermountainh8ter/txwarden
 
 ## 3. One line
 
 OSS pre-signature Ethereum tx check, deterministic verdict, optional LLM explainer that can't
-override it. Beta, synthetic evals, feedback wanted: <repository URL>
+override it. Beta, synthetic evals, feedback wanted: https://github.com/Intermountainh8ter/txwarden

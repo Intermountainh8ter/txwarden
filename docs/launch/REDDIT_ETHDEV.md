@@ -56,4 +56,4 @@ Python, MIT, no runtime dependencies. Parts of the code were written with an AI 
 checked with tests, property tests and evals. Feedback I would value: wrong or missing rules, V3
 edge cases I have not modelled, and anyone able to run the opt-in live tests against a real node.
 
-<repository URL>
+https://github.com/Intermountainh8ter/txwarden

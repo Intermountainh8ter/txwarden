@@ -22,7 +22,7 @@ Alternative: `Show HN: An LLM that explains Ethereum tx risk but cannot change t
 
 ## URL
 
-`<repository URL>` (nothing is published yet; fill in when it is)
+https://github.com/Intermountainh8ter/txwarden
 
 ## First comment (post immediately after submitting)
 

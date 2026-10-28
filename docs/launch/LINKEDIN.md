@@ -33,11 +33,11 @@ Honest status, because it matters for a security tool:
 It is open source, MIT licensed, standard library only. If you work on wallet security and have
 labelled real transactions or a node to run the live tests against, I would value the feedback.
 
-<repository URL>
+https://github.com/Intermountainh8ter/txwarden
 
 ## Shorter version (about 400 characters)
 
 Open-sourced TxWarden: a deterministic pre-signature check for Ethereum transactions. An optional
 LLM explains the result but cannot change the ALLOW/WARN/BLOCK verdict (tested against a model
 that obeys every injected instruction). Synthetic evals only, live-node path not yet run against a
-real node. Feedback and real labelled transactions welcome. <repository URL>
+real node. Feedback and real labelled transactions welcome. https://github.com/Intermountainh8ter/txwarden
