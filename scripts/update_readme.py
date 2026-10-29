@@ -21,7 +21,11 @@ that these blocks would have corrected, and the numbers cannot be typed by hand.
     test-count       number of collected tests (pytest --collect-only)
     coverage         from coverage.json if present (pytest --cov --cov-report=json)
     replay-status    "Real-chain results: NOT YET RUN" until a non-MOCK file is under results/,
-                     then the numbers `txwarden replay-report` computes from it
+                     then the numbers `txwarden replay-report` computes from it (README and
+                     docs/LIVE_REPLAY.md)
+    replay-reasons   (docs/LIVE_REPLAY.md) the reason codes of `txwarden replay`, from the runner
+    replay-options   (docs/LIVE_REPLAY.md) every `txwarden replay` option, from the parser
+    replay-report-options  the same for `txwarden replay-report`
 """
 from __future__ import annotations
 
@@ -37,6 +41,8 @@ ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 sys.path.insert(0, str(ROOT / "src"))
 
+from txwarden.cli import build_parser  # noqa: E402
+from txwarden.replay import REASON_CODES  # noqa: E402
 from txwarden.replay_report import status_markdown  # noqa: E402
 from txwarden.ruledocs import markdown_summary_table  # noqa: E402
 from txwarden.rules import RULES  # noqa: E402
@@ -198,6 +204,35 @@ def replay_status() -> str:
     return status_markdown(ROOT / "results")
 
 
+def options_table(command: str) -> str:
+    """Every option of a sub-command, read from the argparse definition (so it cannot drift)."""
+    parser = next(a for a in build_parser()._actions if a.dest == "cmd").choices[command]
+    rows = ["| Option | Argument | Default | Meaning |", "|---|---|---|---|"]
+    for a in parser._actions:
+        if a.option_strings == ["-h", "--help"]:
+            continue
+        name = ", ".join(f"`{o}`" for o in a.option_strings) if a.option_strings \
+            else f"`{a.dest}` (positional)"
+        if a.choices:
+            arg = "{" + "\\|".join(a.choices) + "}"
+        elif a.option_strings and a.nargs != 0:
+            arg = a.metavar or a.dest.upper()
+        else:
+            arg = ""
+        shown = "" if a.default is None or a.default is False or not a.option_strings \
+            else f"`{a.default}`"
+        text = re.sub(r"\s*\(default: %\(default\)s\)", "", a.help or "")  # it has its own column
+        text = text.replace("%(default)s", str(a.default)).replace("|", "\\|")
+        rows.append(f"| {name} | {f'`{arg}`' if arg else ''} | {shown} | {text} |")
+    return "\n".join(rows)
+
+
+def replay_reasons() -> str:
+    rows = ["| Code | Status | Meaning |", "|---|---|---|"]
+    rows.extend(f"| `{code}` | {status} | {text} |" for code, (status, text) in REASON_CODES.items())
+    return "\n".join(rows)
+
+
 def mermaid(name: str):
     def fn() -> str:
         return "```mermaid\n" + (ROOT / "docs" / "diagrams" / f"{name}.mmd").read_text().rstrip() + "\n```"
@@ -205,6 +240,9 @@ def mermaid(name: str):
 
 
 FLOWCHART_BLOCKS = {"usage-mmd": mermaid("usage"), "troubleshooting-mmd": mermaid("troubleshooting")}
+LIVE_REPLAY_BLOCKS = {"replay-status": replay_status, "replay-reasons": replay_reasons,
+                      "replay-options": lambda: options_table("replay"),
+                      "replay-report-options": lambda: options_table("replay-report")}
 BLOCKS = {"rules-table": markdown_summary_table, "rule-counts": rule_counts,
           "cli-example": cli_example, "cli-bundle": cli_bundle,
           "eval-table": eval_table, "legacy-eval": legacy_eval, "strict-eval": strict_eval,
@@ -235,6 +273,7 @@ def render(text: str, blocks: dict, only_check: bool) -> tuple[str, list[str]]:
 
 LAUNCH = sorted((ROOT / "docs" / "launch").glob("*.md"))
 TARGETS = ((README, BLOCKS), (ROOT / "docs" / "FLOWCHARTS.md", FLOWCHART_BLOCKS),
+           (ROOT / "docs" / "LIVE_REPLAY.md", LIVE_REPLAY_BLOCKS),
            *((p, {"facts": facts}) for p in LAUNCH))
 
 

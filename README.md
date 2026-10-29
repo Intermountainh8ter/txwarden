@@ -243,11 +243,11 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**1175 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**1189 tests** run by default, plus 7 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
-Line coverage of `src/txwarden`: **98.9%** (4216/4261 statements); with branches **98.3%**. Lowest module: `redact.py` at 94.9%. CI fails below 90%.
+Line coverage of `src/txwarden`: **99.2%** (4224/4260 statements); with branches **98.6%**. Lowest module: `amm.py` at 95.7%. CI fails below 90%.
 <!-- END coverage -->
 
 What the tests include beyond unit tests: seeded randomised invariants (constant-product `k`
@@ -458,8 +458,8 @@ in the results header, the report title and the file names, and `replay-report` 
 Historical replay needs a node with archive state; the endpoint URL (which carries an API key) is
 read from an environment variable and is never accepted on the command line or printed. The
 sequence below is what you run with your own endpoint and your own labelled cases
-(`docs/LIVE_REPLAY.md` has the full walkthrough, the case-file format and what the numbers do not
-show):
+([docs/LIVE_REPLAY.md](docs/LIVE_REPLAY.md) has the full walkthrough, the case-file format and
+what the numbers do not show):
 
 ```bash
 read -rs TXWARDEN_LIVE_RPC && export TXWARDEN_LIVE_RPC     # paste the endpoint URL; nothing is echoed
@@ -504,7 +504,9 @@ Please read these before depending on the verdict.
   served over real HTTP and against recorded sessions *from that chain*, never against a real
   Anvil, Hardhat, Geth or Reth node. The response shapes of real clients (revert data, `callTracer`
   output, `eth_simulateV1`) are implemented from the specifications and are untested. An opt-in
-  test file exists (`TXWARDEN_LIVE_RPC`, `pytest -m live`); it has not been run against a node.
+  test file exists (`TXWARDEN_LIVE_RPC`, `pytest -m live`); it has not been run against a node, and
+  neither has the historical replay harness (`txwarden replay`, see
+  [Real-chain replay](#real-chain-replay)).
 * **Transactions only.** Off-chain signature requests (EIP-712 typed data such as Permit
   signatures and marketplace orders, `personal_sign`) are not reviewed. On-chain `permit` and
   Permit2 calls are.
@@ -559,6 +561,7 @@ If the client reports a disconnect, the [troubleshooting chart](#diagrams) has a
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | modules, data flow, trust boundaries, fail-closed table |
 | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | attacker classes covered and not covered |
 | [docs/RULES.md](docs/RULES.md) | every rule: what fires it, why it matters, which knobs apply |
+| [docs/LIVE_REPLAY.md](docs/LIVE_REPLAY.md) | replaying labelled historical swaps against a real node: setup, budget, report, caveats |
 | [docs/FLOWCHARTS.md](docs/FLOWCHARTS.md) | usage and troubleshooting flowcharts (Mermaid + SVG) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | development setup, adding a rule, the checks CI runs |
 | [CHANGELOG.md](CHANGELOG.md) | what changed since the first release |

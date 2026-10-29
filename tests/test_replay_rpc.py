@@ -80,7 +80,8 @@ def test_system_clock_is_monotonic_and_sleep_of_zero_is_free():
     a = c.now()
     c.sleep(0)
     c.sleep(-1)
-    assert c.now() >= a and c.wall().startswith("20")
+    c.sleep(0.001)
+    assert c.now() >= a + 0.001 and c.wall().startswith("20")
 
 
 # --------------------------------------------------------------------------- retry policy

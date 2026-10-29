@@ -161,7 +161,7 @@ def _replay_parser(sub: Any) -> None:
                    help="results JSONL; appended to and resumed (default: %(default)s)")
     r.add_argument("--rpc-env", default="TXWARDEN_LIVE_RPC", type=_env_name, metavar="NAME",
                    help="environment variable holding the endpoint URL (default: %(default)s)")
-    r.add_argument("--config", default=None,
+    r.add_argument("--config", default=None, metavar="FILE",
                    help="TOML policy/simulator settings (its rpc_url is ignored)")
     r.add_argument("--cache-dir", default=".txwarden-replay-cache", metavar="DIR",
                    help="on-disk response cache (default: %(default)s)")
@@ -182,8 +182,9 @@ def _replay_parser(sub: Any) -> None:
                    help="units per state read older than the archive window "
                         "(default: %(default)s)")
     r.add_argument("--cost-combine", choices=["sum", "max"], default="sum",
-                   help="how a request that is both debug/trace and archive is priced "
-                        "(default: %(default)s, the conservative choice)")
+                   help="a request that is both debug/trace and archive is priced as the sum of "
+                        "the two surcharges (conservative) or the larger one (default: "
+                        "%(default)s)")
     r.add_argument("--archive-window", type=int, default=128, metavar="BLOCKS",
                    help="state older than head minus this needs archive access "
                         "(default: %(default)s)")

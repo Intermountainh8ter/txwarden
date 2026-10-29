@@ -86,3 +86,11 @@ def test_exception_formatting_names_the_type_and_scrubs_the_message():
 
 def test_non_string_input_is_converted():
     assert Redactor(KEY).scrub(ValueError(KEY)) == PLACEHOLDER
+
+
+@pytest.mark.parametrize("weird", ["   ", "http://[::1", "http://node.example:99999999/key_value_123"])
+def test_unparseable_secrets_do_not_crash_the_redactor(weird):
+    r = Redactor(weird)
+    r.scrub("whatever")
+    if weird.strip():
+        assert weird.strip() not in r.scrub(f"saw {weird.strip()} here")

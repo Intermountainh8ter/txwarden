@@ -151,6 +151,81 @@ def test_readme_real_chain_status_follows_what_is_committed_under_results():
     assert ("Real-chain results: NOT YET RUN" in text) == (not committed)
 
 
+LIVE = ROOT / "docs" / "LIVE_REPLAY.md"
+
+
+def test_live_replay_status_block_matches_the_results_directory():
+    from txwarden.replay_report import committed_real_results
+
+    text = LIVE.read_text()
+    assert ("Real-chain results: NOT YET RUN" in text) == (not committed_real_results(ROOT / "results"))
+
+
+def test_live_replay_walkthrough_covers_what_the_author_needs():
+    text = " ".join(LIVE.read_text().split())
+    for needle in (
+            "TXWARDEN_LIVE_RPC", "read -rs", "--rpc-env", "archive state", "128 blocks",
+            "debug_traceCall", "allow-listed", "--estimate", "--budget-calls", "--budget-units",
+            "--validate-only", "ZeroMEV", "EigenPhi", "mev-inspect", "None of these was checked",
+            "no hashes are supplied", "intra-block ordering effects are not reproduced",
+            "Label noise", "Selection bias", "Few cases", "must be verified in the provider "
+            "console", "2 for `debug_*`/`trace_*`", "N-1", "--allow-mock", "--allow-small",
+            "SMALL SAMPLE", "MOCK", "make docs", "results/"):
+        assert needle in text, needle
+    assert "never in a file" in text.lower() or "Do not write it into a file" in text
+
+
+def test_live_replay_documents_every_option_and_reason_code():
+    from txwarden.cli import build_parser
+    from txwarden.replay import REASON_CODES
+
+    text = LIVE.read_text()
+    subs = next(a for a in build_parser()._actions if a.dest == "cmd").choices
+    for name in ("replay", "replay-report"):
+        for action in subs[name]._actions:
+            for opt in action.option_strings:
+                assert opt in ("-h", "--help") or f"`{opt}`" in text, f"{name} {opt} undocumented"
+    for code in REASON_CODES:
+        assert f"`{code}`" in text
+
+
+def test_the_documented_example_cases_load_and_are_obviously_fake():
+    from txwarden.replay import parse_cases
+
+    block = re.search(r"```csv\n(.*?)```", LIVE.read_text(), re.S).group(1)
+    cases = parse_cases(block, "example.csv")
+    assert cases.counts == {"sandwiched": 1, "ordinary": 1}
+    assert {c.source for c in cases.cases} == {"EXAMPLE"}
+    assert all(set(c.tx_hash[2:-1]) == {"0"} for c in cases.cases)
+
+
+def test_replay_commands_in_the_docs_parse_with_the_real_parser():
+    import shlex
+
+    from txwarden.cli import build_parser
+
+    parser = build_parser()
+    seen = 0
+    for path in (ROOT / "README.md", LIVE):
+        for block in re.findall(r"```(?:bash|sh)\n(.*?)```", path.read_text(), re.S):
+            for line in block.splitlines():
+                if not re.match(r"txwarden replay(-report)?\b", line):
+                    continue
+                argv = shlex.split(line, comments=True)[1:]
+                parser.parse_args(argv)  # raises SystemExit on a flag that does not exist
+                assert not any("://" in a for a in argv)
+                seen += 1
+    assert seen >= 6
+
+
+def test_docs_never_show_a_url_with_a_key_or_an_rpc_flag_for_replay():
+    for path in DOCS:
+        text = path.read_text()
+        assert not re.search(r"txwarden replay[^\n]*--rpc(?!-env)", text), path.name
+        assert not re.search(r"https?://[^\s)`\"']*(?:/v\d/|apikey=|api_key=)[A-Za-z0-9_-]{16,}", text), \
+            path.name
+
+
 def test_no_mock_results_are_committed():
     results = ROOT / "results"
     if results.exists():

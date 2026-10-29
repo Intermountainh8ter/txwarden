@@ -214,6 +214,34 @@ _ARCHIVE_HINTS = ("missing trie node", "header not found", "state not available"
                   "no state available")
 
 
+# Every reason a case can be recorded as unsupported or error. docs/LIVE_REPLAY.md renders this
+# table (scripts/update_readme.py), and a test checks the runner uses only these codes.
+REASON_CODES: dict[str, tuple[str, str]] = {
+    "not_a_swap": ("unsupported", "The calldata is not a swap the decoder recognises: an approval, "
+                   "a transfer, an aggregator route or an unknown router."),
+    "contract_creation": ("unsupported", "The transaction creates a contract, so there is no swap "
+                          "to analyse."),
+    "pool_state_unavailable": ("unsupported", "The pool could not be found or priced at the pinned "
+                               "block: no pair, an unsupported route, or more than one swap in the "
+                               "transaction."),
+    "reverts_at_pin": ("unsupported", "Simulated at the end of block N-1 the transaction reverts; "
+                       "it most likely depended on earlier transactions in block N."),
+    "tx_not_found": ("error", "The endpoint does not know the hash: wrong chain, a mistyped hash, "
+                     "or a node that has pruned it."),
+    "pending": ("error", "The transaction is not mined (the node reports no block number)."),
+    "bad_response": ("error", "The node's answer was not a transaction object the harness can "
+                     "read, or the block is 0."),
+    "rpc_error": ("error", "An RPC call failed during the case (connection, HTTP 4xx/5xx other "
+                  "than 429, a node error). Even a failed optional probe invalidates the case."),
+    "rate_limited": ("error", "The node kept answering 429 or a rate-limit error after all "
+                     "retries."),
+    "archive_state_unavailable": ("error", "The node cannot serve state at the pinned block: the "
+                                  "plan lacks archive access or the block is too old."),
+    "engine_error": ("error", "The rule engine raised an error on this case."),
+    "internal_error": ("error", "An unexpected exception in the harness; the text names it."),
+}
+
+
 class ReplayError(ValueError):
     """A problem with how the replay was invoked or with the endpoint; the text is already
     scrubbed of credentials."""
@@ -509,8 +537,6 @@ class Replayer:
         ids = {f.rule for f in findings}
         if "ENGINE_ERROR" in ids:
             return self._fail(rec, "error", "engine_error", "the rule engine raised an error")
-        if "SIMULATION_UNAVAILABLE" in ids:
-            return self._fail(rec, "error", "rpc_error", "simulation unavailable")
         if "ANALYSIS_INCOMPLETE" in ids:
             missing = next((f.data.get("missing") for f in findings
                             if f.rule == "ANALYSIS_INCOMPLETE"), None)

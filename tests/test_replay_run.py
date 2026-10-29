@@ -749,3 +749,54 @@ def test_environment_variable_names_are_validated(name):
     with pytest.raises(ReplayError) as e:
         endpoint_from_env(name, {})
     assert "node.example" not in str(e.value) and "environment variable name" in str(e.value)
+
+
+# --------------------------------------------------------------------------- odd nodes
+
+def test_a_node_that_cannot_report_its_head_block_still_replays(tmp_path):
+    w = build_world()
+    real = w.chain.rpc
+
+    def no_head(method, params):
+        if method == "eth_blockNumber":
+            raise RpcError("Method not found", -32601)
+        return real(method, params)
+
+    out, results, r = run(w, tmp_path, raw=no_head)
+    assert results.header["head_block"] is None and len(results.cases) == 12
+    # with the head unknown every pinned state read is priced as archive
+    assert r.metered.head is None and out.units > 0
+
+
+def test_a_node_that_has_no_eth_call_is_an_rpc_error_not_a_verdict(tmp_path):
+    w = build_world()
+    real = w.chain.rpc
+
+    def no_call(method, params):
+        if method == "eth_call":
+            raise RpcError("Method not found", -32601)
+        return real(method, params)
+
+    _, results, _ = run(w, tmp_path, raw=no_call, max_consecutive_errors=0)
+    rec = rec_for(results, rw.TIGHT_ORDINARY)
+    assert rec["status"] == "error" and rec["reason_code"] == "rpc_error"
+    assert "Method not found" in rec["reason"]
+
+
+def test_an_unreadable_block_number_is_treated_as_not_mined(tmp_path):
+    w = build_world()
+    w.chain.txs[fake_hash(4)]["blockNumber"] = "0xzz"
+    _, results, _ = run(w, tmp_path)
+    assert rec_for(results, rw.TIGHT_ORDINARY)["reason_code"] == "pending"
+
+
+def test_reason_codes_used_by_the_runner_are_all_registered_with_the_right_status():
+    import re
+
+    src = (Path(replay_module.__file__)).read_text()
+    used = set(re.findall(r'_fail\(\s*rec,\s*"(\w+)",\s*"(\w+)"', src))
+    used |= set(re.findall(r'\(rec, "(error)", "(\w+)"', src))
+    assert used
+    for status, code in used:
+        assert replay_module.REASON_CODES[code][0] == status, code
+    assert {code for _, code in used} == set(replay_module.REASON_CODES)

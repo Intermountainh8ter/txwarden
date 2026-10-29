@@ -70,6 +70,12 @@ words if the layout is non-trivial (see the Universal Router `PERMIT2_PERMIT` go
 * Network access is never required. Anything that talks to a node goes through the in-memory
   `FakeChain` or the `tests/fake_rpc.py` HTTP server. Live tests live in `tests/test_live.py`, are
   marked `live`, and skip unless `TXWARDEN_LIVE_RPC` is set.
+* Historical-state and replay tests use `tests/fake_history.py` (a fake archive node: one
+  `FakeChain` per block, a transaction index, optional pruning, a fake clock) and
+  `tests/replay_world.py` (labelled synthetic cases, one per outcome). Hashes in tests are
+  `fake_hash(n)` (`0x000...0n`). Never put a real transaction hash or an endpoint URL in the
+  repository (a test enforces the first); `docs/LIVE_REPLAY.md` has generated blocks, so run
+  `make docs` after changing a replay option or reason code.
 * Recorded sessions in `tests/fixtures/rpc_*.json` are derived data: `python -m tests.make_fixtures`.
   Trace fixtures (`trace_*.json`) are hand-written and say so.
 
