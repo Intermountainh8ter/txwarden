@@ -9,6 +9,7 @@ which is documented in THREAT_MODEL.md as a known limitation of non-archive endp
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -123,6 +124,32 @@ class StaticSimulator:
 # --------------------------------------------------------------------------- transport
 
 Transport = Callable[[str, list[Any]], Any]
+
+BlockSpec = str | int  # "latest", a non-negative integer, or a 0x-hex quantity string
+_HEX_QUANTITY = re.compile(r"0x[0-9a-f]+")
+
+
+def normalize_block(block: BlockSpec) -> str:
+    """The JSON-RPC block parameter for ``block``: ``"latest"`` or a minimal ``0x`` quantity.
+
+    Integers and hex strings are canonicalised (``0x00ff`` -> ``0xff``) because nodes reject
+    quantities with leading zeros. Other tags (``pending``, ``safe``, ...) are refused on purpose:
+    a pinned analysis must name a block that cannot move underneath it.
+    """
+    if isinstance(block, bool):  # bool is an int subclass; True would silently mean block 1
+        raise ValueError(f"block must be 'latest', an integer or a 0x-hex string, got {block!r}")
+    if isinstance(block, int):
+        if block < 0:
+            raise ValueError(f"block number must not be negative, got {block}")
+        return hex(block)
+    if isinstance(block, str):
+        s = block.strip().lower()
+        if s == "latest":
+            return "latest"
+        if _HEX_QUANTITY.fullmatch(s):
+            return hex(int(s, 16))
+    raise ValueError(
+        f"block must be 'latest', an integer or a 0x-hex string, got {str(block)[:40]!r}")
 
 
 _UNSUPPORTED_HINTS = ("method not found", "unknown method", "not supported")
@@ -306,15 +333,33 @@ class AnvilSimulator:
     probes (``eth_getCode``/``eth_getTransactionCount``/``eth_getBalance``) -> pool state for
     swaps (V2 reserves, V3 slot0/liquidity/ticks) -> LP totals -> honeypot probe
     (``eth_simulateV1``, falling back to router quotes) -> ``debug_traceCall`` call tree.
+
+    **Block pinning.** ``block`` selects the state every read is made against: ``"latest"`` (the
+    default, today's behaviour), an integer, or a ``0x``-hex string. It is sent with every
+    state-dependent request: ``eth_call``, ``eth_estimateGas`` (only when pinned, so the default
+    request bytes are unchanged), ``eth_getBlockByNumber``, ``eth_getCode``, ``eth_getBalance``,
+    ``eth_getTransactionCount``, ``eth_simulateV1`` and ``debug_traceCall``.
+
+    To replay a *historical* transaction that was mined in block ``N``, pin to ``N - 1``: that is
+    the state at the end of block ``N - 1``, which approximates what a wallet saw when the user
+    signed. A front-run, if there was one, sits inside block ``N`` and is invisible at ``N - 1``.
+    **Limitation:** this is a block-boundary snapshot. Transactions that precede the victim *within*
+    block ``N`` (other swaps on the same pool, the attacker's own front-run, approvals) have not
+    happened yet, so intra-block ordering effects are not reproduced and a transaction that depended
+    on them can revert or price differently. Pinning to an old block needs a node with archive
+    state; a pruned node answers "missing trie node" or similar, which is reported as an
+    infrastructure failure, never as a revert.
     """
 
     def __init__(self, rpc_url: str | None = None, transport: Transport | None = None,
-                 v2_factory: str | None = None, options: SimulatorOptions | None = None):
+                 v2_factory: str | None = None, options: SimulatorOptions | None = None,
+                 block: BlockSpec = "latest"):
         if transport is None:
             if rpc_url is None:
                 raise ValueError("rpc_url or transport required")
             transport = http_transport(rpc_url)
         self.rpc = transport
+        self.block = normalize_block(block)
         self.options = options or SimulatorOptions()
         if v2_factory:
             self.options.v2_factory = v2_factory.lower()
@@ -327,7 +372,11 @@ class AnvilSimulator:
             obj["from"] = sender
         if value:
             obj["value"] = hex(value)
-        return self.rpc("eth_call", [obj, "latest"])
+        return self.rpc("eth_call", [obj, self.block])
+
+    def _estimate_params(self, call: dict[str, Any]) -> list[Any]:
+        # unpinned requests stay byte-identical to what earlier versions sent
+        return [call] if self.block == "latest" else [call, self.block]
 
     def _try(self, fn: Callable[[], Any]) -> Any:
         try:
@@ -342,17 +391,17 @@ class AnvilSimulator:
         call = {"from": tx.sender, "to": tx.to, "data": tx.data, "value": hex(tx.value)}
 
         res.chain_id = self._try(lambda: _uint(self.rpc("eth_chainId", [])))
-        block = self._try(lambda: self.rpc("eth_getBlockByNumber", ["latest", False]))
-        if isinstance(block, dict) and block.get("timestamp"):
-            res.block_timestamp = _uint(block["timestamp"])
+        header = self._try(lambda: self.rpc("eth_getBlockByNumber", [self.block, False]))
+        if isinstance(header, dict) and header.get("timestamp"):
+            res.block_timestamp = _uint(header["timestamp"])
 
         dec = decode_call(tx.data)
         res.call_kind, res.decoded = dec.kind, dec.to_dict()
         eff = extract_effects(tx, dec, opt.weth)
 
         try:
-            self.rpc("eth_call", [call, "latest"])
-            res.gas_used = _uint(self.rpc("eth_estimateGas", [call]))
+            self.rpc("eth_call", [call, self.block])
+            res.gas_used = _uint(self.rpc("eth_estimateGas", self._estimate_params(call)))
         except RuntimeError as e:  # RpcError or a custom transport's own error
             if isinstance(e, RpcError) and e.infrastructure:
                 # nothing was learned about the transaction: report that, never "it reverts"
@@ -369,7 +418,7 @@ class AnvilSimulator:
         res.output_recipients = list(dict.fromkeys(eff.output_recipients))
         res.transfers = self._with_balances(tx, eff.transfers)
         if tx.value > 0:
-            bal = self._try(lambda: _uint(self.rpc("eth_getBalance", [tx.sender, "latest"])))
+            bal = self._try(lambda: _uint(self.rpc("eth_getBalance", [tx.sender, self.block])))
             res.transfers.append(Transfer(ETH, tx.sender, tx.to, tx.value, bal, kind="eth"))
 
         if opt.trace:
@@ -424,18 +473,19 @@ class AnvilSimulator:
         return out
 
     def _account(self, address: str) -> AccountInfo | None:
-        code = self._try(lambda: self.rpc("eth_getCode", [address, "latest"]))
+        code = self._try(lambda: self.rpc("eth_getCode", [address, self.block]))
         if code is None:
             return None
         size = max(0, (len(code) - 2) // 2) if isinstance(code, str) else 0
-        nonce = self._try(lambda: _uint(self.rpc("eth_getTransactionCount", [address, "latest"])))
-        bal = self._try(lambda: _uint(self.rpc("eth_getBalance", [address, "latest"])))
+        nonce = self._try(lambda: _uint(self.rpc("eth_getTransactionCount",
+                                                 [address, self.block])))
+        bal = self._try(lambda: _uint(self.rpc("eth_getBalance", [address, self.block])))
         return AccountInfo(address, size, nonce or 0, bal or 0)
 
     def _eth_receive_reverts(self, tx: Tx) -> bool | None:
         try:
             self.rpc("eth_call", [{"from": tx.sender, "to": tx.to, "data": "0x",
-                                   "value": hex(tx.value)}, "latest"])
+                                   "value": hex(tx.value)}, self.block])
             return False
         except RuntimeError:
             return True
@@ -534,7 +584,7 @@ class AnvilSimulator:
                         ) -> list[dict[str, Any]]:
         block = {"calls": calls, "stateOverrides": overrides}
         out = self.rpc("eth_simulateV1", [{"blockStateCalls": [block], "validation": False,
-                                            "traceTransfers": False}, "latest"])
+                                            "traceTransfers": False}, self.block])
         return out[0]["calls"]
 
     def _probe_honeypot(self, tx: Tx, token: str) -> HoneypotProbe | None:
@@ -621,7 +671,7 @@ class AnvilSimulator:
 
     # ---- trace
     def _trace(self, call: dict[str, Any]) -> CallFrame | None:
-        raw = self._try(lambda: self.rpc("debug_traceCall", [call, "latest",
+        raw = self._try(lambda: self.rpc("debug_traceCall", [call, self.block,
                                                               {"tracer": "callTracer"}]))
         if not isinstance(raw, dict) or ("type" not in raw and "kind" not in raw):
             return None
