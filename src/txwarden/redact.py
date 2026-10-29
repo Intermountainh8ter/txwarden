@@ -43,6 +43,9 @@ def _pieces(url: str) -> set[str]:
     raw = url.strip()
     if not raw:
         return out
+    shown = redact_url(raw)
+    if shown != GENERIC and raw.rstrip("/").lower() == shown:
+        return out  # scheme and host only: nothing in it is secret, and it is what we display
     out.add(raw)
     try:
         parts = urlsplit(raw)

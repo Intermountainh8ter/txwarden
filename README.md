@@ -243,11 +243,11 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**1037 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**1117 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
-Line coverage of `src/txwarden`: **98.6%** (3957/4015 statements); with branches **97.9%**. Lowest module: `redact.py` at 85.7%. CI fails below 90%.
+Line coverage of `src/txwarden`: **98.9%** (3973/4018 statements); with branches **98.2%**. Lowest module: `redact.py` at 94.9%. CI fails below 90%.
 <!-- END coverage -->
 
 What the tests include beyond unit tests: seeded randomised invariants (constant-product `k`
