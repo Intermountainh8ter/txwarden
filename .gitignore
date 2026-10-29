@@ -13,3 +13,8 @@ build/
 node_modules/
 coverage.json
 uv.lock
+
+# replay harness: response cache and run outputs (MOCK results must never be committed)
+.txwarden-replay-cache/
+replay_results*.jsonl
+*.MOCK.*

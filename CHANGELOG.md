@@ -3,6 +3,39 @@
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
 [Semantic Versioning](https://semver.org/) (pre-1.0: minor versions may change behaviour).
 
+## [Unreleased]
+
+### Added
+- **Block pinning.** `AnvilSimulator(block=...)` accepts `"latest"` (default, request bytes
+  unchanged), an integer or a `0x` string and sends it with every state read (`eth_call`,
+  `eth_estimateGas` when pinned, `eth_getBlockByNumber`, `eth_getCode`, `eth_getBalance`,
+  `eth_getTransactionCount`, `eth_simulateV1`, `debug_traceCall`). To replay a transaction mined in
+  block `N`, pin to `N - 1`; intra-block ordering effects are not reproduced.
+- **Historical replay harness.** `txwarden replay CASES` reads labelled (`sandwiched` /
+  `ordinary`) transaction hashes from a CSV or JSONL file, fetches each transaction, simulates it at
+  the pinned block, assesses it and appends one line per case to a results file. Cases that cannot
+  be analysed are recorded `unsupported` or `error` with a reason and never counted. Resume,
+  `--limit`, a token-bucket `--rps`, exponential backoff on HTTP 429/5xx, an on-disk response cache,
+  `--budget-calls` / `--budget-units` with configurable unit costs, and `--estimate`.
+- `txwarden replay-report RESULTS.jsonl`: detection and false-positive rates with 95% Wilson
+  intervals computed from the results file alone, denominators, per-rule hit counts, lists of missed
+  and flagged cases; refuses MOCK results and fewer than 30 analysable cases per label unless
+  `--allow-mock` / `--allow-small`, and stamps what it renders.
+- The RPC URL for `replay` is read only from an environment variable (default
+  `TXWARDEN_LIVE_RPC`, `--rpc-env NAME`); there is no `--rpc` flag, and the URL (path and query
+  included) is kept out of output, results, cache files and exception text.
+- `docs/LIVE_REPLAY.md`, a README section "Real-chain replay" whose status line is generated
+  (it says "Real-chain results: NOT YET RUN" until a non-MOCK results file is under `results/`),
+  generated option and reason-code tables, an opt-in live replay smoke test.
+- Tests: a fake archive node (`tests/fake_history.py`), synthetic labelled replay cases and
+  suites for pinning, the loader, the transport layers, the runner, secret redaction and the report.
+
+### Changed
+- `http_transport` errors name only `scheme://host` instead of the full URL (identical for URLs
+  without a path), no longer quote a malformed URL, and carry `Retry-After` on `RpcError`.
+- Pruned or non-archive nodes ("pruned", "state is not available", "unknown block", "block not
+  found") are classified as infrastructure failures, never as reverts.
+
 ## [0.2.0] - 2026-10-14
 
 ### Added

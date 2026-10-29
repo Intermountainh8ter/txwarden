@@ -24,7 +24,7 @@ MIT licensed. Author: Ammon Jackson.
 
 [Architecture](#architecture) | [Quickstart](#quickstart) | [Configuration](#configuration) |
 [What it checks](#what-it-checks) | [How well does it work](#how-well-does-it-work) |
-[Diagrams](#diagrams) | [Limitations](#limitations) | [MCP server](#mcp-server) |
+[Real-chain replay](#real-chain-replay) | [Diagrams](#diagrams) | [Limitations](#limitations) | [MCP server](#mcp-server) |
 [Docs](#documentation)
 
 ## Architecture
@@ -243,11 +243,11 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**719 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**1195 tests** run by default, plus 7 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set (the replay smoke test also needs `TXWARDEN_LIVE_REPLAY_CASES`).
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
-Line coverage of `src/txwarden`: **98.8%** (3070/3106 statements); with branches **98.1%**. Lowest module: `amm.py` at 95.7%. CI fails below 90%.
+Line coverage of `src/txwarden`: **99.2%** (4235/4271 statements); with branches **98.6%**. Lowest module: `amm.py` at 95.7%. CI fails below 90%.
 <!-- END coverage -->
 
 What the tests include beyond unit tests: seeded randomised invariants (constant-product `k`
@@ -439,6 +439,46 @@ obtain an ALLOW. **What this does not show:** that a real language model resists
 well be fooled, and its explanation can then be wrong), only that being fooled cannot move the
 verdict. No real model was run; the repository has no API key in its tests.
 
+## Real-chain replay
+
+<!-- BEGIN replay-status -->
+**Real-chain results: NOT YET RUN.** No non-MOCK results file is committed under `results/`. Every number elsewhere in this README comes from synthetic data or from the in-memory fake node.
+<!-- END replay-status -->
+
+Everything under "How well does it work" is synthetic. `txwarden replay` is the harness for the
+first real measurement: given transaction hashes that someone has labelled `sandwiched` or
+`ordinary`, it reads each transaction from a node, simulates it against the state at the end of
+the block *before* the one that mined it, runs the normal rule engine, and appends one line per
+case to a results file. `txwarden replay-report` turns that file into a detection rate (WARN or
+BLOCK on the sandwiched cases) and a false-positive rate (WARN or BLOCK on the ordinary cases)
+with 95% Wilson intervals, computed from the results file alone.
+
+It has only ever run against the in-memory fake node in the tests. Those runs are stamped `MOCK`
+in the results header, the report title and the file names, and `replay-report` refuses them.
+Historical replay needs a node with archive state; the endpoint URL (which carries an API key) is
+read from an environment variable and is never accepted on the command line or printed. The
+sequence below is what you run with your own endpoint and your own labelled cases
+([docs/LIVE_REPLAY.md](docs/LIVE_REPLAY.md) has the full walkthrough, the case-file format and
+what the numbers do not show):
+
+```bash
+read -rs TXWARDEN_LIVE_RPC && export TXWARDEN_LIVE_RPC     # paste the endpoint URL; nothing is echoed
+txwarden replay cases.csv --validate-only                   # check the labelled cases, no network
+txwarden replay cases.csv --estimate                        # measure 3 cases: requests and projected units
+txwarden replay cases.csv --out results/replay.jsonl --budget-calls 5000
+txwarden replay cases.csv --out results/replay.jsonl --budget-calls 5000   # same command resumes
+txwarden replay-report results/replay.jsonl --out results/replay-report.md
+```
+
+A case the harness cannot analyse (not a swap the decoder knows, no pool state, reverts at the
+pinned block, transaction not found, RPC or archive failure) is recorded as `unsupported` or
+`error` with a reason and is never counted as detected, missed, correct or wrong; the report shows
+every denominator. The report refuses a headline with fewer than 30 analysable cases per label
+unless you pass `--allow-small` (the output is then stamped SMALL SAMPLE). The known limits are
+the approximation itself (state at the end of block N-1 does not contain the attacker's front-run
+or anything else earlier in block N), label noise, selection bias and the swaps the decoder does
+not cover.
+
 ## Diagrams
 
 How to use it, from install to acting on the exit code
@@ -464,7 +504,9 @@ Please read these before depending on the verdict.
   served over real HTTP and against recorded sessions *from that chain*, never against a real
   Anvil, Hardhat, Geth or Reth node. The response shapes of real clients (revert data, `callTracer`
   output, `eth_simulateV1`) are implemented from the specifications and are untested. An opt-in
-  test file exists (`TXWARDEN_LIVE_RPC`, `pytest -m live`); it has not been run against a node.
+  test file exists (`TXWARDEN_LIVE_RPC`, `pytest -m live`); it has not been run against a node, and
+  neither has the historical replay harness (`txwarden replay`, see
+  [Real-chain replay](#real-chain-replay)).
 * **Transactions only.** Off-chain signature requests (EIP-712 typed data such as Permit
   signatures and marketplace orders, `personal_sign`) are not reviewed. On-chain `permit` and
   Permit2 calls are.
@@ -519,6 +561,7 @@ If the client reports a disconnect, the [troubleshooting chart](#diagrams) has a
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | modules, data flow, trust boundaries, fail-closed table |
 | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | attacker classes covered and not covered |
 | [docs/RULES.md](docs/RULES.md) | every rule: what fires it, why it matters, which knobs apply |
+| [docs/LIVE_REPLAY.md](docs/LIVE_REPLAY.md) | replaying labelled historical swaps against a real node: setup, budget, report, caveats |
 | [docs/FLOWCHARTS.md](docs/FLOWCHARTS.md) | usage and troubleshooting flowcharts (Mermaid + SVG) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | development setup, adding a rule, the checks CI runs |
 | [CHANGELOG.md](CHANGELOG.md) | what changed since the first release |

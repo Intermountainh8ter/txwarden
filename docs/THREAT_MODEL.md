@@ -64,4 +64,7 @@ when the language model is unavailable, so the model's failure never blocks a re
 
 Real transactions with labels (not synthetic), recorded sessions from real nodes across clients,
 EIP-712 request review, log and state-diff based effects, simulation against multiple
-orderings, and an address history source. None of these exist here.
+orderings, and an address history source. None of these exist here. The first has a harness now
+(`txwarden replay`, [LIVE_REPLAY.md](LIVE_REPLAY.md)) that has been tested only against fakes; it
+replays each swap at the end of the previous block, so it cannot reproduce intra-block ordering,
+and the labels, the case selection and the swaps it can decode all shape what it measures.
