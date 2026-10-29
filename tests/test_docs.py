@@ -140,6 +140,23 @@ def test_no_model_identifiers_in_the_tree_except_the_configurable_default():
             assert not pattern.search(text), f"model identifier in {p.relative_to(ROOT)}"
 
 
+# --------------------------------------------------------------------------- real-chain status
+
+def test_readme_real_chain_status_follows_what_is_committed_under_results():
+    from txwarden.replay_report import committed_real_results
+
+    text = (ROOT / "README.md").read_text()
+    assert "## Real-chain replay" in text
+    committed = committed_real_results(ROOT / "results")
+    assert ("Real-chain results: NOT YET RUN" in text) == (not committed)
+
+
+def test_no_mock_results_are_committed():
+    results = ROOT / "results"
+    if results.exists():
+        assert not [p for p in results.rglob("*") if "MOCK" in p.name], "MOCK output must not ship"
+
+
 # --------------------------------------------------------------------------- README snippets
 
 def test_readme_python_example_runs_and_blocks():

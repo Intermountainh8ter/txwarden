@@ -20,6 +20,8 @@ that these blocks would have corrected, and the numbers cannot be typed by hand.
     facts            (docs/launch/*.md) the numbers that copy may quote
     test-count       number of collected tests (pytest --collect-only)
     coverage         from coverage.json if present (pytest --cov --cov-report=json)
+    replay-status    "Real-chain results: NOT YET RUN" until a non-MOCK file is under results/,
+                     then the numbers `txwarden replay-report` computes from it
 """
 from __future__ import annotations
 
@@ -35,6 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 sys.path.insert(0, str(ROOT / "src"))
 
+from txwarden.replay_report import status_markdown  # noqa: E402
 from txwarden.ruledocs import markdown_summary_table  # noqa: E402
 from txwarden.rules import RULES  # noqa: E402
 
@@ -191,6 +194,10 @@ def coverage() -> str | None:
             f"`{worst}` at {per[worst]:.1f}%. CI fails below 90%.")
 
 
+def replay_status() -> str:
+    return status_markdown(ROOT / "results")
+
+
 def mermaid(name: str):
     def fn() -> str:
         return "```mermaid\n" + (ROOT / "docs" / "diagrams" / f"{name}.mmd").read_text().rstrip() + "\n```"
@@ -202,7 +209,8 @@ BLOCKS = {"rules-table": markdown_summary_table, "rule-counts": rule_counts,
           "cli-example": cli_example, "cli-bundle": cli_bundle,
           "eval-table": eval_table, "legacy-eval": legacy_eval, "strict-eval": strict_eval,
           "sweeps": sweeps,
-          "injection-table": injection_table, "test-count": test_count, "coverage": coverage}
+          "injection-table": injection_table, "test-count": test_count, "coverage": coverage,
+          "replay-status": replay_status}
 # the coverage block needs a prior `pytest --cov --cov-report=json`; it is not checked in --check
 CHECK_SKIP = {"coverage"}
 

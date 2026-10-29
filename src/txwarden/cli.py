@@ -40,6 +40,7 @@ from .replay import (
     load_cases,
     valid_env_name,
 )
+from .replay_report import ReportRefused, render_json, render_text, report_from_file
 from .replay_rpc import CostModel
 from .risk import RULES, PolicyConfig, assess
 from .ruledocs import explain_dict, explain_text, rules_markdown, rules_table
@@ -52,7 +53,8 @@ from .simulator import (
     replay_transport,
 )
 
-SUBCOMMANDS = ("review", "batch", "decode", "explain", "rules", "label", "mcp", "replay")
+SUBCOMMANDS = ("review", "batch", "decode", "explain", "rules", "label", "mcp", "replay",
+               "replay-report")
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -116,6 +118,24 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--rpc", default=None)
 
     _replay_parser(sub)
+
+    rr = sub.add_parser(
+        "replay-report", allow_abbrev=False,
+        help="headline detection / false-positive numbers from a replay results file",
+        description="Compute detection rate (sandwiched cases) and false-positive rate (ordinary "
+                    "cases) with Wilson 95% intervals from a results file written by `txwarden "
+                    "replay`, and nothing else. Refuses MOCK results and fewer than 30 analysable "
+                    "cases per label unless told otherwise; those outputs are stamped.")
+    rr.add_argument("results", help="results JSONL written by `txwarden replay`")
+    rr.add_argument("--allow-mock", action="store_true",
+                    help="render results produced against the in-repo fake node (stamped MOCK)")
+    rr.add_argument("--allow-small", action="store_true",
+                    help="render with fewer than 30 analysable cases per label (stamped "
+                         "SMALL SAMPLE)")
+    rr.add_argument("--json", action="store_true", help="machine-readable output")
+    rr.add_argument("--out", default=None, metavar="PATH",
+                    help="write the report here instead of stdout (MOCK / SMALL SAMPLE are "
+                         "added to the file name)")
     return p
 
 
@@ -503,6 +523,23 @@ def cmd_replay(a: argparse.Namespace, out: Any) -> int:
     return outcome.exit_code
 
 
+def cmd_replay_report(a: argparse.Namespace, out: Any) -> int:
+    try:
+        rep = report_from_file(a.results, allow_mock=a.allow_mock, allow_small=a.allow_small)
+    except ReportRefused as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 3
+    text = render_json(rep) if a.json else render_text(rep)
+    if a.out:
+        path = rep.output_path(a.out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        print(f"wrote {path}", file=out)
+    else:
+        out.write(text)
+    return 0
+
+
 def _refuses_url_argument(argv: list[str]) -> bool:
     """True for ``replay`` invoked with something that looks like an RPC URL or an --rpc flag."""
     return bool(argv) and argv[0] == "replay" and any(
@@ -531,6 +568,7 @@ def main(argv: list[str] | None = None, out: Any = None) -> int:
     handler = {
         "review": cmd_review, "batch": cmd_batch, "decode": cmd_decode, "explain": cmd_explain,
         "rules": cmd_rules, "label": cmd_label, "mcp": cmd_mcp, "replay": cmd_replay,
+        "replay-report": cmd_replay_report,
     }[a.cmd]
     try:
         return handler(a, out)
