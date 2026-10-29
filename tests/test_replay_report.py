@@ -496,3 +496,14 @@ def test_status_handles_a_label_with_no_analysable_cases(tmp_path):
     d.mkdir()
     write(d, [make_rec(i, "ordinary") for i in range(1, 5)], name="replay.jsonl")
     assert "sandwiched cases flagged WARN or BLOCK n/a" in status_markdown(d)
+
+
+def test_cli_points_at_the_mock_stamped_file_when_the_plain_name_does_not_exist(tmp_path):
+    path = run_world(tmp_path)  # written as results.MOCK.jsonl
+    code, out, err = cli("replay-report", str(tmp_path / "results.jsonl"))
+    assert code == 3 and out == "" and str(path) in err and "stamped MOCK" in err
+
+
+def test_report_table_rows_have_no_trailing_spaces(tmp_path):
+    text = render_text(report_from_file(write(tmp_path, population())))
+    assert all(line == line.rstrip() for line in text.splitlines())

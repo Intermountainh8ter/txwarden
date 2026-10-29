@@ -358,10 +358,10 @@ class EstimateRow:
 
 @dataclass
 class ReplayOutcome:
-    stopped: str  # completed | limit | budget | errors | interrupted | estimate
+    stopped: str  # completed | limit | budget | errors | interrupted | aborted | estimate
     out_path: Path | None
     mock: bool
-    analysed: int = 0  # cases processed in this run, whatever their status
+    processed: int = 0  # cases handled in this run, whatever their status
     skipped: int = 0  # already in the results file
     counts: Counter = field(default_factory=Counter)
     calls: int = 0
@@ -623,7 +623,7 @@ class Replayer:
             out.calls, out.units = self.budget.calls, self.budget.units
             out.cache_hits = self.rpc.hits
             writer.write({"type": "run", "started_utc": started, "finished_utc": self.clock.wall(),
-                          "stopped": out.stopped, "cases": out.analysed,
+                          "stopped": out.stopped, "cases": out.processed,
                           "rpc_calls": self.budget.calls, "units": _num(self.budget.units),
                           "cache_hits": self.rpc.hits, "retries": self.retrying.retries})
             writer.close()
@@ -645,7 +645,7 @@ class Replayer:
                 out.message = "interrupted; rerun the same command to continue"
                 return
             writer.write(rec)
-            out.analysed += 1
+            out.processed += 1
             out.counts[rec["status"]] += 1
             self.log(f"[{i}/{len(todo)}] {rec['tx_hash']} {rec['label']}: {rec['status']}"
                      + (f" {rec['verdict']}" if rec.get("verdict") else "")

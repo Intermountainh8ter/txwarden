@@ -202,7 +202,7 @@ LIMITS = (
     "positives, an unnoticed attack among the 'ordinary' cases) moves both rates, and cases "
     "chosen because they were notable are not a random sample of swaps.",
     "  - A detection is a WARN or BLOCK for any reason, not proof the rule that fired is the "
-    "reason the swap was attacked; read the per-rule table and the lists below.",
+    "reason the swap was attacked; read the per-rule table and the lists of cases above.",
     "  - Confidence intervals assume independent cases drawn from one population; they do not "
     "cover label noise, selection bias or the pinned-state approximation.",
     "  - Thresholds are the author's defaults and were not tuned on these cases.",
@@ -238,7 +238,7 @@ def render_text(rep: Report) -> str:
                  str(st.analysed), str(st.unsupported), str(st.error), str(st.invalid))
                 for st in rep.labels.values())
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
-    out += ["  " + "  ".join(c.ljust(w) for c, w in zip(r, widths)) for r in rows]
+    out += [("  " + "  ".join(c.ljust(w) for c, w in zip(r, widths))).rstrip() for r in rows]
     for st in rep.labels.values():
         if st.not_run:
             out.append(f"  WARNING: {st.not_run} {st.label} case(s) in the input file have no "

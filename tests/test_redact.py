@@ -94,3 +94,11 @@ def test_unparseable_secrets_do_not_crash_the_redactor(weird):
     r.scrub("whatever")
     if weird.strip():
         assert weird.strip() not in r.scrub(f"saw {weird.strip()} here")
+
+
+def test_the_docstring_example_is_true():
+    import doctest
+
+    import txwarden.redact as module
+
+    assert doctest.testmod(module).failed == 0

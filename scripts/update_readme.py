@@ -181,7 +181,8 @@ def test_count() -> str:
     total = int(m.group(1))
     live = len(re.findall(r"tests/test_live\.py::", r.stdout))
     return (f"**{total - live} tests** run by default, plus {live} opt-in live-RPC tests that are "
-            "skipped unless `TXWARDEN_LIVE_RPC` is set.")
+            "skipped unless `TXWARDEN_LIVE_RPC` is set (the replay smoke test also needs "
+            "`TXWARDEN_LIVE_REPLAY_CASES`).")
 
 
 def coverage() -> str | None:

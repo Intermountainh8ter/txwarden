@@ -73,7 +73,7 @@ class Redactor:
     """Removes the pieces of the given secret URLs from text.
 
     >>> Redactor("https://node.example/v1/abcd1234abcd").scrub("GET /v1/abcd1234abcd failed")
-    'GET /v1/[redacted] failed'
+    'GET /[redacted] failed'
     """
 
     def __init__(self, *secrets: object):

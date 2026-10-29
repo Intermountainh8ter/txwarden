@@ -243,11 +243,11 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**1189 tests** run by default, plus 7 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**1195 tests** run by default, plus 7 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set (the replay smoke test also needs `TXWARDEN_LIVE_REPLAY_CASES`).
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
-Line coverage of `src/txwarden`: **99.2%** (4224/4260 statements); with branches **98.6%**. Lowest module: `amm.py` at 95.7%. CI fails below 90%.
+Line coverage of `src/txwarden`: **99.2%** (4235/4271 statements); with branches **98.6%**. Lowest module: `amm.py` at 95.7%. CI fails below 90%.
 <!-- END coverage -->
 
 What the tests include beyond unit tests: seeded randomised invariants (constant-product `k`

@@ -175,7 +175,9 @@ def _replay_parser(sub: Any) -> None:
     r.add_argument("--budget-units", type=float, default=None, metavar="U",
                    help="stop cleanly before spending more than U billing units in this run")
     r.add_argument("--cost-per-call", type=float, default=1.0, metavar="U",
-                   help="units per request (default: %(default)s)")
+                   help="units per request (default: %(default)s). The default unit costs of "
+                        "this and the next two options come from the provider's documentation "
+                        "and must be verified in the provider console")
     r.add_argument("--cost-debug-trace", type=float, default=2.0, metavar="U",
                    help="units per debug_*/trace_* request (default: %(default)s)")
     r.add_argument("--cost-archive", type=float, default=2.0, metavar="U",
@@ -187,6 +189,9 @@ def _replay_parser(sub: Any) -> None:
                         "%(default)s)")
     r.add_argument("--archive-window", type=int, default=128, metavar="BLOCKS",
                    help="state older than head minus this needs archive access "
+                        "(default: %(default)s)")
+    r.add_argument("--timeout", type=float, default=30.0, metavar="SECONDS",
+                   help="per-request timeout; archive reads and traces can be slow "
                         "(default: %(default)s)")
     r.add_argument("--max-retries", type=int, default=5, metavar="N",
                    help="retries per request on HTTP 429/5xx, with exponential backoff "
@@ -494,15 +499,21 @@ def cmd_replay(a: argparse.Namespace, out: Any) -> int:
                 raise ReplayError(f"--{name.replace('_', '-')} must not be negative")
         if not cfg.rps > 0:
             raise ReplayError("--rps must be positive")
+        if not a.timeout > 0:
+            raise ReplayError("--timeout must be positive")
         app = _config(a)
         print(f"endpoint: {redact_url(url)} (from ${a.rpc_env})", file=out)
         replayer = Replayer(
-            cases, http_transport(url), cfg, app.effective_policy(), app.simulator, redactor,
-            log=lambda m: print(redactor.scrub(m), file=out), config_sha256=_replay_policy_hash(app))
+            cases, http_transport(url, timeout=a.timeout), cfg, app.effective_policy(),
+            app.simulator, redactor, log=lambda m: print(redactor.scrub(m), file=out, flush=True),
+            config_sha256=_replay_policy_hash(app))
         outcome = replayer.run()
     except (ReplayError, ConfigError) as e:
         print(f"error: {redactor.scrub(e)}", file=sys.stderr)
         return 3
+    except KeyboardInterrupt:
+        print("error: interrupted; rerun the same command to continue", file=sys.stderr)
+        return 4
     except Exception as e:  # never let a traceback (which may quote the URL) reach the terminal
         print(f"error: {redactor.exception(e)}", file=sys.stderr)
         return 1
@@ -513,7 +524,7 @@ def cmd_replay(a: argparse.Namespace, out: Any) -> int:
         print(format_estimate(outcome, costs), file=out)
         return outcome.exit_code
     c = outcome.counts
-    print(f"{outcome.stopped}: {outcome.analysed} analysed this run ({c['analysed']} with a "
+    print(f"{outcome.stopped}: {outcome.processed} processed this run ({c['analysed']} with a "
           f"verdict, {c['unsupported']} unsupported, {c['error']} error); {outcome.skipped} "
           f"already done; {outcome.calls} RPC requests, {outcome.units:g} units, "
           f"{outcome.cache_hits} cache hits", file=out)
@@ -525,6 +536,13 @@ def cmd_replay(a: argparse.Namespace, out: Any) -> int:
 
 
 def cmd_replay_report(a: argparse.Namespace, out: Any) -> int:
+    from .replay import mock_stamped
+
+    stamped = mock_stamped(a.results)
+    if not Path(a.results).exists() and stamped != Path(a.results) and stamped.exists():
+        print(f"error: {a.results} does not exist, but {stamped} does: results from the in-repo "
+              "fake node are stamped MOCK in their file name", file=sys.stderr)
+        return 3
     try:
         rep = report_from_file(a.results, allow_mock=a.allow_mock, allow_small=a.allow_small)
     except ReportRefused as e:

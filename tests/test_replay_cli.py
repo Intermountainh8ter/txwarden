@@ -155,7 +155,7 @@ def test_full_run_over_http(cases_file, node, tmp_path):
     assert "12 cases: 6 sandwiched, 6 ordinary" in out
     assert f"endpoint: {srv.url} (from $TXWARDEN_LIVE_RPC)" in out
     assert "MOCK: the endpoint is the in-repo fake node" in out
-    assert "completed: 12 analysed this run (6 with a verdict, 4 unsupported, 2 error)" in out
+    assert "completed: 12 processed this run (6 with a verdict, 4 unsupported, 2 error)" in out
     path = tmp_path / "results.MOCK.jsonl"
     assert f"results: {path}" in out
     results = read_results(path)
@@ -167,7 +167,7 @@ def test_full_run_over_http(cases_file, node, tmp_path):
 def test_resume_over_http_skips_finished_cases(cases_file, node, tmp_path):
     cli("replay", str(cases_file), *flags(tmp_path), "--limit", "3")
     code, out, _ = cli("replay", str(cases_file), *flags(tmp_path))
-    assert code == 0 and "9 analysed this run" in out and "3 already done" in out
+    assert code == 0 and "9 processed this run" in out and "3 already done" in out
 
 
 def test_budget_stop_exits_4_and_says_how_to_continue(cases_file, node, tmp_path):
@@ -232,3 +232,31 @@ def test_json_output_files_are_valid_jsonl(cases_file, node, tmp_path):
 def test_progress_lines_are_printed_per_case(cases_file, node, tmp_path):
     _, out, _ = cli("replay", str(cases_file), *flags(tmp_path), "--limit", "2")
     assert "[1/2]" in out and "[2/2]" in out and "requests=" in out
+
+
+def test_timeout_flag_reaches_the_transport(cases_file, tmp_path, monkeypatch):
+    from .fake_rpc import FakeRpcServer as Slow
+
+    world = build_world()
+    with Slow(world.chain.rpc, delay=1.5) as srv:
+        monkeypatch.setenv("TXWARDEN_LIVE_RPC", f"{srv.url}/{KEY}")
+        code, out, err = cli("replay", str(cases_file), *flags(tmp_path), "--timeout", "0.2",
+                             "--max-retries", "0")
+    assert code == 3 and "cannot reach" in err and "timed out" in err and KEY not in out + err
+
+
+def test_timeout_must_be_positive(cases_file, node, tmp_path):
+    code, _, err = cli("replay", str(cases_file), *flags(tmp_path), "--timeout", "0")
+    assert code == 3 and "--timeout must be positive" in err
+
+
+def test_ctrl_c_before_the_loop_exits_cleanly_without_a_traceback(cases_file, node, tmp_path,
+                                                                 monkeypatch):
+    from txwarden.replay import Replayer
+
+    def interrupted(self):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(Replayer, "run", interrupted)
+    code, _out, err = cli("replay", str(cases_file), *flags(tmp_path))
+    assert code == 4 and "interrupted" in err and "Traceback" not in err

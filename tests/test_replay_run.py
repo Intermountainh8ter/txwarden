@@ -261,10 +261,10 @@ def test_resume_refuses_a_file_that_is_not_a_results_file(tmp_path):
 def test_limit_processes_that_many_cases_then_resume_does_the_rest(tmp_path):
     w = build_world()
     first, r1, _ = run(w, tmp_path, limit=5)
-    assert first.stopped == "limit" and first.analysed == 5 and first.exit_code == 0
+    assert first.stopped == "limit" and first.processed == 5 and first.exit_code == 0
     assert len(r1.cases) == 5
     second, r2, _ = run(w, tmp_path)
-    assert second.stopped == "completed" and second.skipped == 5 and second.analysed == 7
+    assert second.stopped == "completed" and second.skipped == 5 and second.processed == 7
     assert len(r2.cases) == 12
     lines = [json.loads(x) for x in second.out_path.read_text().splitlines()]
     assert sum(x["type"] == "header" for x in lines) == 1
@@ -278,7 +278,7 @@ def test_a_finished_file_is_a_no_op_on_rerun(tmp_path):
     run(w, tmp_path)
     before = (tmp_path / "results.MOCK.jsonl").read_text()
     out, _, _ = run(w, tmp_path)
-    assert out.analysed == 0 and out.skipped == 12 and out.stopped == "completed"
+    assert out.processed == 0 and out.skipped == 12 and out.stopped == "completed"
     assert out.calls == out.preflight_calls == 3
     added = (tmp_path / "results.MOCK.jsonl").read_text()[len(before):]
     assert [json.loads(x)["type"] for x in added.splitlines()] == ["run"]
@@ -286,12 +286,12 @@ def test_a_finished_file_is_a_no_op_on_rerun(tmp_path):
 
 def test_limit_zero_analyses_nothing(tmp_path):
     out, results, _ = run(build_world(), tmp_path, limit=0)
-    assert out.analysed == 0 and out.stopped == "limit" and results.cases == {}
+    assert out.processed == 0 and out.stopped == "limit" and results.cases == {}
 
 
 def test_limit_larger_than_the_file_is_just_completed(tmp_path):
     out, _, _ = run(build_world(), tmp_path, limit=500)
-    assert out.stopped == "completed" and out.analysed == 12
+    assert out.stopped == "completed" and out.processed == 12
 
 
 def test_a_torn_last_line_is_ignored_and_rewritten_on_resume(tmp_path):
@@ -320,9 +320,9 @@ def test_retry_errors_reruns_only_the_cases_that_errored(tmp_path):
     assert rec_for(r1, rw.TIGHT_ORDINARY)["reason_code"] == "rpc_error"
     broken["on"] = False
     out2, _r2, _ = run(w, tmp_path, raw=flaky)
-    assert out2.analysed == 0  # the error is final unless asked
+    assert out2.processed == 0  # the error is final unless asked
     out3, r3, _ = run(w, tmp_path, raw=flaky, retry_errors=True)
-    assert out3.analysed == 3  # case 4 plus the two cases that were never going to be found
+    assert out3.processed == 3  # case 4 plus the two cases that were never going to be found
     assert rec_for(r3, rw.TIGHT_ORDINARY)["status"] == "analysed"
     lines = [json.loads(x) for x in out3.out_path.read_text().splitlines()]
     assert sum(x.get("tx_hash") == fake_hash(4) for x in lines) == 2  # history is kept
@@ -361,7 +361,7 @@ def test_unit_budget_is_enforced_separately(tmp_path):
 
 def test_budget_too_small_for_the_endpoint_check_stops_before_any_case(tmp_path):
     out, results, _ = run(build_world(), tmp_path, budget_calls=2)
-    assert out.stopped == "budget" and results is None and out.analysed == 0
+    assert out.stopped == "budget" and results is None and out.processed == 0
     assert "before the endpoint check" in out.message
 
 

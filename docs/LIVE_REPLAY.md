@@ -251,11 +251,12 @@ Reason codes:
 | `--rps` | `R` | `10.0` | requests per second ceiling |
 | `--budget-calls` | `N` |  | stop cleanly before sending more than N RPC requests in this run |
 | `--budget-units` | `U` |  | stop cleanly before spending more than U billing units in this run |
-| `--cost-per-call` | `U` | `1.0` | units per request |
+| `--cost-per-call` | `U` | `1.0` | units per request. The default unit costs of this and the next two options come from the provider's documentation and must be verified in the provider console |
 | `--cost-debug-trace` | `U` | `2.0` | units per debug_*/trace_* request |
 | `--cost-archive` | `U` | `2.0` | units per state read older than the archive window |
 | `--cost-combine` | `{sum\|max}` | `sum` | a request that is both debug/trace and archive is priced as the sum of the two surcharges (conservative) or the larger one |
 | `--archive-window` | `BLOCKS` | `128` | state older than head minus this needs archive access |
+| `--timeout` | `SECONDS` | `30.0` | per-request timeout; archive reads and traces can be slow |
 | `--max-retries` | `N` | `5` | retries per request on HTTP 429/5xx, with exponential backoff |
 | `--max-consecutive-errors` | `N` | `10` | stop after N cases in a row fail on the RPC; 0 never stops |
 | `--retry-errors` |  |  | redo cases the results file records as error |
