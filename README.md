@@ -24,7 +24,7 @@ MIT licensed. Author: Ammon Jackson.
 
 [Architecture](#architecture) | [Quickstart](#quickstart) | [Configuration](#configuration) |
 [What it checks](#what-it-checks) | [How well does it work](#how-well-does-it-work) |
-[Diagrams](#diagrams) | [Limitations](#limitations) | [MCP server](#mcp-server) |
+[Real-chain replay](#real-chain-replay) | [Diagrams](#diagrams) | [Limitations](#limitations) | [MCP server](#mcp-server) |
 [Docs](#documentation)
 
 ## Architecture
@@ -243,11 +243,11 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**1117 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**1175 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
-Line coverage of `src/txwarden`: **98.9%** (3973/4018 statements); with branches **98.2%**. Lowest module: `redact.py` at 94.9%. CI fails below 90%.
+Line coverage of `src/txwarden`: **98.9%** (4216/4261 statements); with branches **98.3%**. Lowest module: `redact.py` at 94.9%. CI fails below 90%.
 <!-- END coverage -->
 
 What the tests include beyond unit tests: seeded randomised invariants (constant-product `k`
@@ -438,6 +438,46 @@ means an injected model can force a BLOCK on a harmless transaction (denial of s
 obtain an ALLOW. **What this does not show:** that a real language model resists injection (it may
 well be fooled, and its explanation can then be wrong), only that being fooled cannot move the
 verdict. No real model was run; the repository has no API key in its tests.
+
+## Real-chain replay
+
+<!-- BEGIN replay-status -->
+**Real-chain results: NOT YET RUN.** No non-MOCK results file is committed under `results/`. Every number elsewhere in this README comes from synthetic data or from the in-memory fake node.
+<!-- END replay-status -->
+
+Everything under "How well does it work" is synthetic. `txwarden replay` is the harness for the
+first real measurement: given transaction hashes that someone has labelled `sandwiched` or
+`ordinary`, it reads each transaction from a node, simulates it against the state at the end of
+the block *before* the one that mined it, runs the normal rule engine, and appends one line per
+case to a results file. `txwarden replay-report` turns that file into a detection rate (WARN or
+BLOCK on the sandwiched cases) and a false-positive rate (WARN or BLOCK on the ordinary cases)
+with 95% Wilson intervals, computed from the results file alone.
+
+It has only ever run against the in-memory fake node in the tests. Those runs are stamped `MOCK`
+in the results header, the report title and the file names, and `replay-report` refuses them.
+Historical replay needs a node with archive state; the endpoint URL (which carries an API key) is
+read from an environment variable and is never accepted on the command line or printed. The
+sequence below is what you run with your own endpoint and your own labelled cases
+(`docs/LIVE_REPLAY.md` has the full walkthrough, the case-file format and what the numbers do not
+show):
+
+```bash
+read -rs TXWARDEN_LIVE_RPC && export TXWARDEN_LIVE_RPC     # paste the endpoint URL; nothing is echoed
+txwarden replay cases.csv --validate-only                   # check the labelled cases, no network
+txwarden replay cases.csv --estimate                        # measure 3 cases: requests and projected units
+txwarden replay cases.csv --out results/replay.jsonl --budget-calls 5000
+txwarden replay cases.csv --out results/replay.jsonl --budget-calls 5000   # same command resumes
+txwarden replay-report results/replay.jsonl --out results/replay-report.md
+```
+
+A case the harness cannot analyse (not a swap the decoder knows, no pool state, reverts at the
+pinned block, transaction not found, RPC or archive failure) is recorded as `unsupported` or
+`error` with a reason and is never counted as detected, missed, correct or wrong; the report shows
+every denominator. The report refuses a headline with fewer than 30 analysable cases per label
+unless you pass `--allow-small` (the output is then stamped SMALL SAMPLE). The known limits are
+the approximation itself (state at the end of block N-1 does not contain the attacker's front-run
+or anything else earlier in block N), label noise, selection bias and the swaps the decoder does
+not cover.
 
 ## Diagrams
 

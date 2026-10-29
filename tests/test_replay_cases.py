@@ -225,7 +225,8 @@ def test_missing_file_raises_file_not_found(tmp_path):
 
 def test_no_real_looking_transaction_hashes_are_checked_in():
     """Docs and data files may only contain obviously synthetic 32-byte values (0x000...0n or one
-    repeated byte). Calldata words in evals/ and tests/fixtures/ are test data, not hashes."""
+    repeated byte). Calldata words in evals/ and tests/fixtures/ are test data, not hashes, and
+    results/ is where the author commits real results, which is the one place real hashes belong."""
     import re
     import subprocess
     from pathlib import Path
@@ -238,8 +239,8 @@ def test_no_real_looking_transaction_hashes_are_checked_in():
     checked = 0
     for name in files:
         p = root / name
-        if (p.suffix not in {".md", ".csv", ".jsonl"} or name.startswith(("evals/", "tests/"))
-                or not p.is_file()):
+        if (p.suffix not in {".md", ".csv", ".jsonl"}
+                or name.startswith(("evals/", "tests/", "results/")) or not p.is_file()):
             continue
         checked += 1
         for m in re.finditer(r"0x[0-9a-fA-F]{64}(?![0-9a-fA-F])", p.read_text()):
