@@ -8,6 +8,7 @@ which is documented in THREAT_MODEL.md as a known limitation of non-archive endp
 """
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import urllib.error
@@ -35,6 +36,7 @@ from .models import (
     V3Swap,
     V3Tick,
 )
+from .redact import redact_url
 
 UNISWAP_V2_FACTORY = "0x5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f"
 UNISWAP_V2_ROUTER = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
@@ -167,9 +169,10 @@ class RpcError(RuntimeError):
     node answering with an error object), which the simulator treats as "no analysis possible"."""
 
     def __init__(self, message: str, code: int | None = None, data: Any = None,
-                 transport: bool = False):
+                 transport: bool = False, retry_after: float | None = None):
         super().__init__(message)
         self.message, self.code, self.data, self.transport = message, code, data, transport
+        self.retry_after = retry_after  # seconds, from an HTTP Retry-After header when given
 
     @property
     def unsupported(self) -> bool:
@@ -211,25 +214,45 @@ def decode_revert(data: Any) -> str | None:
     return None
 
 
+def _retry_after(headers: Any) -> float | None:
+    """Seconds from a numeric ``Retry-After`` header (the HTTP-date form is ignored)."""
+    try:
+        value = float(headers.get("Retry-After")) if headers is not None else None
+    except (TypeError, ValueError):
+        return None
+    return value if value is not None and 0 <= value < 86_400 else None
+
+
 def http_transport(url: str, timeout: float = 15.0) -> Transport:
+    """JSON-RPC over HTTP POST. ``url`` may carry an API key, so it is never put in a message:
+    errors name only ``scheme://host[:port]`` (see ``redact.redact_url``)."""
     counter = {"id": 0}
+    shown = redact_url(url)
 
     def call(method: str, params: list[Any]) -> Any:
         counter["id"] += 1
         body = json.dumps({"jsonrpc": "2.0", "id": counter["id"], "method": method,
                            "params": params}).encode()
-        req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
+        try:
+            req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
+        except ValueError:  # the library's message quotes the whole URL
+            raise RpcError(f"{shown} is not a usable http(s) URL", transport=True) from None
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                out = json.loads(resp.read())
+                raw = resp.read()
         except urllib.error.HTTPError as e:
-            raise RpcError(f"HTTP {e.code} from {url}", code=e.code, transport=True) from e
+            raise RpcError(f"HTTP {e.code} from {shown}", code=e.code, transport=True,
+                           retry_after=_retry_after(e.headers)) from e
         except urllib.error.URLError as e:
-            raise RpcError(f"cannot reach {url}: {e.reason}", transport=True) from e
+            raise RpcError(f"cannot reach {shown}: {e.reason}", transport=True) from e
         except (TimeoutError, OSError) as e:
-            raise RpcError(f"cannot reach {url}: {e}", transport=True) from e
+            raise RpcError(f"cannot reach {shown}: {e}", transport=True) from e
+        except (http.client.HTTPException, ValueError):  # e.g. InvalidURL quotes the URL
+            raise RpcError(f"HTTP protocol error talking to {shown}", transport=True) from None
+        try:
+            out = json.loads(raw)
         except ValueError as e:  # not JSON (an HTML error page, a captive portal, ...)
-            raise RpcError(f"{url} did not return JSON: {e}", transport=True) from e
+            raise RpcError(f"{shown} did not return JSON: {e}", transport=True) from e
         if not isinstance(out, dict):
             raise RpcError("malformed JSON-RPC response", transport=True)
         if "error" in out:

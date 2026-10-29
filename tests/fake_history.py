@@ -115,3 +115,21 @@ class HistoricalChain:
         position = {"eth_getBlockByNumber": 0, "debug_traceCall": 1}.get(method, 1)
         return [p[position] if len(p) > position else None
                 for m, p in self.log if m == method]
+
+
+class FakeClock:
+    """Deterministic time for rate-limit and backoff tests: ``sleep`` just advances ``now``."""
+
+    def __init__(self, start: float = 1_000.0):
+        self.t = start
+        self.sleeps: list[float] = []
+
+    def now(self) -> float:
+        return self.t
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.t += seconds
+
+    def wall(self) -> str:
+        return "2026-01-01T00:00:00+00:00"

@@ -37,10 +37,15 @@ def replay_handler(path: str | Path) -> Handler:
 
 class FakeRpcServer:
     def __init__(self, handler: Handler | None = None, *, status: int = 200,
-                 body: bytes | None = None, delay: float = 0.0, content_type: str = "application/json"):
+                 body: bytes | None = None, delay: float = 0.0, content_type: str = "application/json",
+                 faults: list[int] | None = None, fault_headers: dict[str, str] | None = None):
         self.handler, self.status, self.body, self.delay = handler, status, body, delay
         self.content_type = content_type
+        # one HTTP status per request, consumed in order before normal service resumes
+        self.faults, self.fault_headers = list(faults or []), dict(fault_headers or {})
         self.requests: list[dict[str, Any]] = []
+        self.paths: list[str] = []  # request paths, so a test can put a key in the URL
+        self.last_path = ""
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -48,6 +53,18 @@ class FakeRpcServer:
                 length = int(self.headers.get("Content-Length", 0))
                 req = json.loads(self.rfile.read(length) or b"{}")
                 outer.requests.append(req)
+                outer.paths.append(self.path)
+                outer.last_path = self.path
+                if outer.faults:
+                    code = outer.faults.pop(0)
+                    self.send_response(code)
+                    for k, v in outer.fault_headers.items():
+                        self.send_header(k, v)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", "2")
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+                    return
                 if outer.delay:
                     time.sleep(outer.delay)
                 payload = outer.body

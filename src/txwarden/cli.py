@@ -7,9 +7,14 @@
     txwarden rules
     txwarden label 0x7a25...
     txwarden mcp [--rpc URL]
+    txwarden replay CASES.csv [--out RESULTS.jsonl] [--rpc-env NAME] [--budget-calls N] ...
+    txwarden replay-report RESULTS.jsonl
 
 ``txwarden tx.json ...`` (no sub-command) is accepted as ``review`` for backward compatibility.
-Exit codes: 0 ALLOW, 2 WARN/BLOCK, 3 usage or input error.
+Exit codes: 0 ALLOW, 2 WARN/BLOCK, 3 usage or input error. ``replay`` exits 0 when it finished
+(or hit ``--limit``), 4 when it stopped early (budget, repeated RPC failures, interrupt).
+``replay`` never takes an RPC URL on the command line: the endpoint comes from an environment
+variable because it carries an API key.
 """
 from __future__ import annotations
 
@@ -25,6 +30,17 @@ from .agent import TxWardenAgent
 from .batch import assess_bundle
 from .config import AppConfig, ConfigError, load_config
 from .models import Finding, SimResult, Tx, Verdict
+from .redact import Redactor, redact_url
+from .replay import (
+    ReplayConfig,
+    Replayer,
+    ReplayError,
+    endpoint_from_env,
+    format_estimate,
+    load_cases,
+    valid_env_name,
+)
+from .replay_rpc import CostModel
 from .risk import RULES, PolicyConfig, assess
 from .ruledocs import explain_dict, explain_text, rules_markdown, rules_table
 from .simulator import (
@@ -36,7 +52,7 @@ from .simulator import (
     replay_transport,
 )
 
-SUBCOMMANDS = ("review", "batch", "decode", "explain", "rules", "label", "mcp")
+SUBCOMMANDS = ("review", "batch", "decode", "explain", "rules", "label", "mcp", "replay")
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -98,7 +114,76 @@ def build_parser() -> argparse.ArgumentParser:
     m = sub.add_parser("mcp", help="serve the MCP stdio server")
     m.add_argument("--config", default=None)
     m.add_argument("--rpc", default=None)
+
+    _replay_parser(sub)
     return p
+
+
+def _env_name(value: str) -> str:
+    if not valid_env_name(value):  # never echo the value: a mistyped --rpc URL ends up here
+        raise argparse.ArgumentTypeError("must be an environment variable name")
+    return value
+
+
+def _replay_parser(sub: Any) -> None:
+    r = sub.add_parser(
+        "replay", allow_abbrev=False,
+        help="replay labelled historical swaps against a node (endpoint from an env var)",
+        description="Replay labelled historical swaps (sandwiched / ordinary) through the normal "
+                    "simulate-and-assess pipeline, each pinned to the block before the one that "
+                    "mined it. The RPC URL is read from an environment variable and is never "
+                    "accepted as an argument or printed.")
+    r.add_argument("cases", help="CSV or JSONL file with columns tx_hash, label "
+                                 "(sandwiched|ordinary), optional source, notes")
+    r.add_argument("--format", choices=["csv", "jsonl"], default=None,
+                   help="case file format (default: from the file suffix or content)")
+    r.add_argument("--out", default="replay_results.jsonl", metavar="PATH",
+                   help="results JSONL; appended to and resumed (default: %(default)s)")
+    r.add_argument("--rpc-env", default="TXWARDEN_LIVE_RPC", type=_env_name, metavar="NAME",
+                   help="environment variable holding the endpoint URL (default: %(default)s)")
+    r.add_argument("--config", default=None,
+                   help="TOML policy/simulator settings (its rpc_url is ignored)")
+    r.add_argument("--cache-dir", default=".txwarden-replay-cache", metavar="DIR",
+                   help="on-disk response cache (default: %(default)s)")
+    r.add_argument("--no-cache", action="store_true", help="do not read or write the cache")
+    r.add_argument("--limit", type=int, default=None, metavar="N",
+                   help="analyse at most N not-yet-done cases in this run")
+    r.add_argument("--rps", type=float, default=10.0, metavar="R",
+                   help="requests per second ceiling (default: %(default)s)")
+    r.add_argument("--budget-calls", type=int, default=None, metavar="N",
+                   help="stop cleanly before sending more than N RPC requests in this run")
+    r.add_argument("--budget-units", type=float, default=None, metavar="U",
+                   help="stop cleanly before spending more than U billing units in this run")
+    r.add_argument("--cost-per-call", type=float, default=1.0, metavar="U",
+                   help="units per request (default: %(default)s)")
+    r.add_argument("--cost-debug-trace", type=float, default=2.0, metavar="U",
+                   help="units per debug_*/trace_* request (default: %(default)s)")
+    r.add_argument("--cost-archive", type=float, default=2.0, metavar="U",
+                   help="units per state read older than the archive window "
+                        "(default: %(default)s)")
+    r.add_argument("--cost-combine", choices=["sum", "max"], default="sum",
+                   help="how a request that is both debug/trace and archive is priced "
+                        "(default: %(default)s, the conservative choice)")
+    r.add_argument("--archive-window", type=int, default=128, metavar="BLOCKS",
+                   help="state older than head minus this needs archive access "
+                        "(default: %(default)s)")
+    r.add_argument("--max-retries", type=int, default=5, metavar="N",
+                   help="retries per request on HTTP 429/5xx, with exponential backoff "
+                        "(default: %(default)s)")
+    r.add_argument("--max-consecutive-errors", type=int, default=10, metavar="N",
+                   help="stop after N cases in a row fail on the RPC; 0 never stops "
+                        "(default: %(default)s)")
+    r.add_argument("--retry-errors", action="store_true",
+                   help="redo cases the results file records as error")
+    r.add_argument("--estimate", action="store_true",
+                   help="run the first 3 cases, print measured requests and the projected total, "
+                        "write no results")
+    r.add_argument("--validate-only", action="store_true",
+                   help="check the case file and print counts per label; no endpoint needed")
+    r.add_argument("--mock", action="store_true",
+                   help="stamp the results MOCK (done automatically for the in-repo fake node)")
+    r.add_argument("--endpoint-label", default="rpc endpoint", metavar="TEXT",
+                   help="how the results header names the endpoint (never the URL)")
 
 
 def _normalise_argv(argv: list[str]) -> list[str]:
@@ -354,17 +439,98 @@ def cmd_mcp(a: argparse.Namespace, out: Any) -> int:
     return MCPServer(cfg).serve(stdout=out if out is not sys.stdout else None)
 
 
+def _replay_policy_hash(cfg: AppConfig) -> str:
+    import hashlib
+    from dataclasses import asdict
+
+    sim = {k: (sorted(v) if isinstance(v, set) else v) for k, v in asdict(cfg.simulator).items()}
+    blob = json.dumps({"policy": cfg.effective_policy().to_dict(), "simulator": sim},
+                      sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def cmd_replay(a: argparse.Namespace, out: Any) -> int:
+    cases = load_cases(a.cases, a.format)
+    print(cases.summary(), file=out)
+    if a.validate_only:
+        return 0
+    redactor = Redactor()
+    try:
+        url = endpoint_from_env(a.rpc_env)
+        redactor = Redactor(url)  # from here on every message is scrubbed of the URL's parts
+        costs = CostModel(a.cost_per_call, a.cost_debug_trace, a.cost_archive, a.cost_combine,
+                          a.archive_window)
+        cfg = ReplayConfig(
+            out_path=Path(a.out), cache_dir=None if a.no_cache else Path(a.cache_dir),
+            limit=a.limit, rps=a.rps, budget_calls=a.budget_calls, budget_units=a.budget_units,
+            costs=costs, max_retries=a.max_retries, retry_errors=a.retry_errors,
+            max_consecutive_errors=a.max_consecutive_errors, mock=a.mock,
+            endpoint_label=a.endpoint_label, estimate=a.estimate)
+        for name in ("limit", "budget_calls", "budget_units", "max_retries",
+                     "max_consecutive_errors"):
+            value = getattr(cfg, name)
+            if value is not None and value < 0:
+                raise ReplayError(f"--{name.replace('_', '-')} must not be negative")
+        if not cfg.rps > 0:
+            raise ReplayError("--rps must be positive")
+        app = _config(a)
+        print(f"endpoint: {redact_url(url)} (from ${a.rpc_env})", file=out)
+        replayer = Replayer(
+            cases, http_transport(url), cfg, app.effective_policy(), app.simulator, redactor,
+            log=lambda m: print(redactor.scrub(m), file=out), config_sha256=_replay_policy_hash(app))
+        outcome = replayer.run()
+    except (ReplayError, ConfigError) as e:
+        print(f"error: {redactor.scrub(e)}", file=sys.stderr)
+        return 3
+    except Exception as e:  # never let a traceback (which may quote the URL) reach the terminal
+        print(f"error: {redactor.exception(e)}", file=sys.stderr)
+        return 1
+    if outcome.mock:
+        print("MOCK: the endpoint is the in-repo fake node; these results say nothing about "
+              "real transactions", file=out)
+    if cfg.estimate:
+        print(format_estimate(outcome, costs), file=out)
+        return outcome.exit_code
+    c = outcome.counts
+    print(f"{outcome.stopped}: {outcome.analysed} analysed this run ({c['analysed']} with a "
+          f"verdict, {c['unsupported']} unsupported, {c['error']} error); {outcome.skipped} "
+          f"already done; {outcome.calls} RPC requests, {outcome.units:g} units, "
+          f"{outcome.cache_hits} cache hits", file=out)
+    if outcome.out_path is not None:
+        print(f"results: {outcome.out_path}", file=out)
+    if outcome.message:
+        print(redactor.scrub(outcome.message), file=out)
+    return outcome.exit_code
+
+
+def _refuses_url_argument(argv: list[str]) -> bool:
+    """True for ``replay`` invoked with something that looks like an RPC URL or an --rpc flag."""
+    return bool(argv) and argv[0] == "replay" and any(
+        "://" in t or t == "--rpc" or t.startswith("--rpc=") for t in argv[1:])
+
+
 def main(argv: list[str] | None = None, out: Any = None) -> int:
     out = out or sys.stdout
     argv = _normalise_argv(list(sys.argv[1:] if argv is None else argv))
+    if _refuses_url_argument(argv):
+        print("error: replay does not take an RPC URL on the command line (it would land in shell "
+              "history and process listings). Put the URL in an environment variable "
+              "(default TXWARDEN_LIVE_RPC, or choose one with --rpc-env NAME).", file=sys.stderr)
+        return 3
     parser = build_parser()
-    a = parser.parse_args(argv)
+    a, extra = parser.parse_known_args(argv)
+    if extra:
+        if a.cmd == "replay":  # a mistyped flag may sit next to a pasted key: say nothing about it
+            print("error: replay: unrecognized arguments (not shown). See `txwarden replay "
+                  "--help`; the endpoint is read from an environment variable.", file=sys.stderr)
+            raise SystemExit(2)
+        parser.error("unrecognized arguments: " + " ".join(extra))
     if a.cmd is None:
         parser.print_help(file=out)
         return 3
     handler = {
         "review": cmd_review, "batch": cmd_batch, "decode": cmd_decode, "explain": cmd_explain,
-        "rules": cmd_rules, "label": cmd_label, "mcp": cmd_mcp,
+        "rules": cmd_rules, "label": cmd_label, "mcp": cmd_mcp, "replay": cmd_replay,
     }[a.cmd]
     try:
         return handler(a, out)
