@@ -48,3 +48,16 @@ malicious constructed cases is at least 0.5.
 Metric: /false_negative_rate/overall (FN = engine verdict ALLOW on a malicious case).
 Expected: at least 0.50.
 Falsifier: overall false-negative rate below 0.50 with the Wilson interval upper bound under 0.5.
+
+## 2026-11-12T10:35:29Z userop-4337-fn-audit proposal:417d967c777aa2a98d9469fc1b62ee82cb764983c42f8af43d47da66b09f6019
+
+Set: constructed and SIMULATED (not real on-chain transactions, not a public labelled release).
+Hypothesis: on constructed handleOps transactions whose UserOperation callData carries an unlimited
+ERC-20 approval to an unknown spender, a batch hiding one such approval among benign calls, a
+delegatecall-style target change, or an unknown paymaster, the engine's unsafe-ALLOW false-negative
+rate is at least 0.60 overall because the engine does not decode UserOperation callData, while the
+false-positive rate (WARN or BLOCK) on matched benign UserOperations is at most 0.10.
+Metric: /false_negative_rate/overall (FN = engine verdict ALLOW on a malicious case).
+Expected: at least 0.60.
+Falsifier: overall false-negative rate below 0.60 with the Wilson interval upper bound under 0.60,
+or overall false-positive rate above 0.10.

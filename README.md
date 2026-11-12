@@ -235,7 +235,7 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**736 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**740 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
@@ -339,6 +339,16 @@ cases are modelled as an authorization-only transaction or a call with unrecogni
 Unsafe-ALLOW false-negative rate on malicious cases (results/72-7702-permit2-fn-audit.json):
 overall 0.5 (120 of 240), EIP-7702 1.0 (120 of 120), Permit2 0.0 (0 of 120). Reproduce with
 `python3 evals/audit_7702_permit2.py --seed 7 --out results/72-7702-permit2-fn-audit.json`.
+
+### ERC-4337 UserOperation false-negative audit (constructed, SIMULATED)
+
+`evals/audit_userop_4337.py` runs the engine on a seeded, locally constructed set of handleOps
+transactions (unlimited approval, a batch hiding one approval, a target change, an unknown
+paymaster); these are not real transactions. Unsafe-ALLOW false-negative rate on malicious cases
+(results/116-userop-4337-fn-audit.json): overall 1.0 (160 of 160), 1.0 for every variant. The
+false-positive rate on matched benign cases is 0.0. The engine does not decode UserOperation
+callData, so none of these is flagged. Reproduce with
+`python3 evals/audit_userop_4337.py --seed 7 --out results/116-userop-4337-fn-audit.json`.
 
 ### Approval-variant false-negative audit (constructed, SIMULATED)
 
