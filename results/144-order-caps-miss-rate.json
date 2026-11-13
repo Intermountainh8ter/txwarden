@@ -1,0 +1,67 @@
+{
+  "caps": {
+    "aggregate": 5000,
+    "per_order": 1000
+  },
+  "counts": {
+    "aggregate_exposure_split": 200,
+    "benign": 200,
+    "single_oversize": 200
+  },
+  "false_positive_rate": {
+    "per_order_only": 0.0,
+    "with_aggregate": 0.0
+  },
+  "miss_rate": {
+    "aggregate_exposure_split": 1.0,
+    "aggregate_exposure_split_with_aggregate": 0.0,
+    "by_class": {
+      "aggregate_exposure_split": {
+        "per_order_only": 1.0,
+        "with_aggregate": 0.0
+      },
+      "single_oversize": {
+        "per_order_only": 0.0,
+        "with_aggregate": 0.0
+      }
+    }
+  },
+  "provenance": {
+    "command": "python3 evals/audit_order_caps.py --seed 7 --out results/144-order-caps-miss-rate.json",
+    "data_sources": [
+      {
+        "license": "MIT (repository code, no third-party data)",
+        "url": "locally generated seeded synthetic orders (no external data)"
+      }
+    ],
+    "hardware": "cpu",
+    "seeds": [
+      7
+    ],
+    "started_at": "2026-11-13T11:12:14Z",
+    "wall_s": 0.004
+  },
+  "set_label": "SIMULATED seeded order sequences, generic schema; not real orders",
+  "wilson_95": {
+    "aggregate_exposure_split": {
+      "per_order_only": [
+        0.9812,
+        1.0
+      ],
+      "with_aggregate": [
+        0.0,
+        0.0188
+      ]
+    },
+    "single_oversize": {
+      "per_order_only": [
+        0.0,
+        0.0188
+      ],
+      "with_aggregate": [
+        0.0,
+        0.0188
+      ]
+    }
+  }
+}

@@ -61,3 +61,15 @@ Metric: /false_negative_rate/overall (FN = engine verdict ALLOW on a malicious c
 Expected: at least 0.60.
 Falsifier: overall false-negative rate below 0.60 with the Wilson interval upper bound under 0.60,
 or overall false-positive rate above 0.10.
+
+## 2026-11-13T11:10:07Z order-caps-miss-rate proposal:4a28adac826ea4823556e313af60d36c5e39c514242ee43ac29e9034d9dfaa8d
+
+Set: seeded SIMULATED order sequences in a neutral generic schema (no external data).
+Hypothesis: on seeded simulated orders, a per-order notional cap alone passes at least 0.80 of order
+sequences that are split into sub-cap orders and jointly exceed the exposure cap, while an added
+aggregate exposure rule passes at most 0.05 of them, with false-positive rate on matched benign
+sequences at most 0.05 for both rules.
+Metric: /miss_rate/aggregate_exposure_split (miss = per-order-only rule passes the sequence).
+Expected: at least 0.80 (range 0.80 to 1.0); aggregate-rule miss rate at most 0.05.
+Falsifier: per-order-only miss rate below 0.80 with Wilson upper bound under 0.80, or aggregate-rule
+miss rate above 0.05, or benign false-positive rate above 0.05.
