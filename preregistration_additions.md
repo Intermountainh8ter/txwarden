@@ -73,3 +73,15 @@ Metric: /miss_rate/aggregate_exposure_split (miss = per-order-only rule passes t
 Expected: at least 0.80 (range 0.80 to 1.0); aggregate-rule miss rate at most 0.05.
 Falsifier: per-order-only miss rate below 0.80 with Wilson upper bound under 0.80, or aggregate-rule
 miss rate above 0.05, or benign false-positive rate above 0.05.
+
+## 2026-11-14T11:39:00Z batch-depth-fn-audit proposal:ec3debca0b58d08d00bfb0919c1edba7028407c55e56042a8afda4746d346ac0
+
+Set: seeded SIMULATED constructed multicall transactions (no external data).
+Hypothesis: on seeded constructed multicall transactions (n=400 per depth) hiding an unlimited ERC-20
+approval to an unknown spender among benign calls at nesting depths 1 to 6, the engine's non-BLOCK
+miss rate is at most 0.05 at depth 2 and at least 0.80 at depth 6 (beyond the decoder's nesting
+limit), with a benign nested-multicall BLOCK rate of at most 0.10.
+Metric: /batch/miss_rate/depth_6 (miss = engine verdict is not BLOCK on a malicious case).
+Expected: at least 0.80 (range 0.80 to 1.0); depth 2 at most 0.05.
+Falsifier: depth-6 miss rate below 0.80, or depth-2 miss rate above 0.05, or benign false-positive
+rate above 0.10.

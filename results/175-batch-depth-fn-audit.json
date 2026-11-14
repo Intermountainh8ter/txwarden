@@ -1,0 +1,159 @@
+{
+  "batch": {
+    "benign_block_detail": {
+      "depth_1": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      },
+      "depth_2": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      },
+      "depth_3": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      },
+      "depth_4": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      },
+      "depth_5": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      },
+      "depth_6": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      }
+    },
+    "benign_block_rate": {
+      "depth_1": 0.0,
+      "depth_2": 0.0,
+      "depth_3": 0.0,
+      "depth_4": 0.0,
+      "depth_5": 0.0,
+      "depth_6": 0.0
+    },
+    "crash_count_malicious": {
+      "depth_1": 0,
+      "depth_2": 0,
+      "depth_3": 0,
+      "depth_4": 0,
+      "depth_5": 400,
+      "depth_6": 0
+    },
+    "decoder_max_depth": 4,
+    "max_benign_block_rate": 0.0,
+    "miss_detail": {
+      "depth_1": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      },
+      "depth_2": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      },
+      "depth_3": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      },
+      "depth_4": {
+        "k": 0,
+        "n": 400,
+        "rate": 0.0,
+        "wilson95": [
+          0.0,
+          0.009512640599680667
+        ]
+      },
+      "depth_5": {
+        "k": 400,
+        "n": 400,
+        "rate": 1.0,
+        "wilson95": [
+          0.9904873594003194,
+          1.0
+        ]
+      },
+      "depth_6": {
+        "k": 400,
+        "n": 400,
+        "rate": 1.0,
+        "wilson95": [
+          0.9904873594003194,
+          1.0
+        ]
+      }
+    },
+    "miss_rate": {
+      "depth_1": 0.0,
+      "depth_2": 0.0,
+      "depth_3": 0.0,
+      "depth_4": 0.0,
+      "depth_5": 1.0,
+      "depth_6": 1.0
+    }
+  },
+  "n_cases": 4800,
+  "provenance": {
+    "command": "python3 evals/audit_batch_depth.py --seed 7 --out results/175-batch-depth-fn-audit.json",
+    "data_sources": [
+      {
+        "license": "MIT (component licence)",
+        "url": "constructed locally (no external data)"
+      }
+    ],
+    "hardware": "cpu",
+    "seeds": [
+      7
+    ],
+    "started_at": "2026-11-14T11:39:40Z",
+    "wall_s": 12.223
+  },
+  "set_label": "constructed, SIMULATED: not real transactions, not a public labelled release"
+}
