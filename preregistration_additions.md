@@ -85,3 +85,16 @@ Metric: /batch/miss_rate/depth_6 (miss = engine verdict is not BLOCK on a malici
 Expected: at least 0.80 (range 0.80 to 1.0); depth 2 at most 0.05.
 Falsifier: depth-6 miss rate below 0.80, or depth-2 miss rate above 0.05, or benign false-positive
 rate above 0.10.
+
+## 2026-11-18T21:01:43Z permit2-transfer-fn-audit proposal:9b3ff545748eef0a8343aa35269acf12dad41809ebd203ff04b6d13b3f910d08
+
+Set: seeded SIMULATED constructed Permit2 transfer transactions (no external data).
+Hypothesis: on seeded constructed Permit2 transactions that move tokens to an unknown recipient through
+permitTransferFrom, permitWitnessTransferFrom or AllowanceTransfer transferFrom (single and batch), the
+engine's unsafe-ALLOW false-negative rate is at least 0.30 overall because its rules key on approvals and
+not on transfers routed through Permit2, while the false-positive rate (WARN or BLOCK) on matched benign
+Permit2 transfers to a trusted recipient is at most 0.10.
+Metric: /false_negative_rate/overall (FN = engine verdict ALLOW on a malicious case).
+Expected: at least 0.30 (range 0.30 to 1.0).
+Falsifier: overall false-negative rate below 0.30 with the Wilson 95% upper bound under 0.30, or benign
+false-positive rate above 0.10.

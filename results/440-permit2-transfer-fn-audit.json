@@ -1,0 +1,82 @@
+{
+  "false_negative_rate": {
+    "by_kind": {
+      "allowance_transfer_from_unknown_recipient": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "permit_transfer_batch_unknown_recipient": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "permit_transfer_single_unknown_recipient": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "permit_witness_transfer_unknown_recipient": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "wilson95": [
+          0.9123754607496077,
+          1.0
+        ]
+      }
+    },
+    "overall": 1.0,
+    "overall_detail": {
+      "k": 160,
+      "n": 160,
+      "rate": 1.0,
+      "wilson95": [
+        0.9765529633499672,
+        1.0
+      ]
+    }
+  },
+  "false_positive_rate": {
+    "k": 0,
+    "n": 160,
+    "rate": 0.0,
+    "wilson95": [
+      0.0,
+      0.023447036650032713
+    ]
+  },
+  "n_cases": 320,
+  "provenance": {
+    "command": "python3 evals/audit_permit2_transfers.py --seed 7 --out results/440-permit2-transfer-fn-audit.json",
+    "data_sources": [
+      {
+        "license": "MIT (component licence)",
+        "url": "constructed locally (no external data)"
+      }
+    ],
+    "hardware": "cpu",
+    "seeds": [
+      7
+    ],
+    "started_at": "2026-11-18T21:01:43Z",
+    "wall_s": 0.183
+  },
+  "rules_fired_malicious": [],
+  "set_label": "constructed, SIMULATED: not real transactions, not a public labelled release",
+  "verdict_counts": {
+    "ALLOW": 320
+  }
+}
