@@ -243,7 +243,7 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**1195 tests** run by default, plus 7 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set (the replay smoke test also needs `TXWARDEN_LIVE_REPLAY_CASES`).
+**1240 tests** run by default, plus 7 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set (the replay smoke test also needs `TXWARDEN_LIVE_REPLAY_CASES`).
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
@@ -469,6 +469,11 @@ txwarden replay cases.csv --out results/replay.jsonl --budget-calls 5000
 txwarden replay cases.csv --out results/replay.jsonl --budget-calls 5000   # same command resumes
 txwarden replay-report results/replay.jsonl --out results/replay-report.md
 ```
+
+No labelled sandwiches yet? `txwarden sample-ordinary` draws random real swaps from the node
+into an all-`ordinary` case file for a false-positive-only run. The report then says detection
+was NOT MEASURED rather than printing a rate, and notes that the sampled cases were never checked
+for having been attacked ([docs/LIVE_REPLAY.md](docs/LIVE_REPLAY.md)).
 
 A case the harness cannot analyse (not a swap the decoder knows, no pool state, reverts at the
 pinned block, transaction not found, RPC or archive failure) is recorded as `unsupported` or

@@ -9,12 +9,13 @@
     txwarden mcp [--rpc URL]
     txwarden replay CASES.csv [--out RESULTS.jsonl] [--rpc-env NAME] [--budget-calls N] ...
     txwarden replay-report RESULTS.jsonl
+    txwarden sample-ordinary [--count N] [--out CASES.csv] [--rpc-env NAME] ...
 
 ``txwarden tx.json ...`` (no sub-command) is accepted as ``review`` for backward compatibility.
 Exit codes: 0 ALLOW, 2 WARN/BLOCK, 3 usage or input error. ``replay`` exits 0 when it finished
 (or hit ``--limit``), 4 when it stopped early (budget, repeated RPC failures, interrupt).
-``replay`` never takes an RPC URL on the command line: the endpoint comes from an environment
-variable because it carries an API key.
+``replay`` and ``sample-ordinary`` never take an RPC URL on the command line: the endpoint comes
+from an environment variable because it carries an API key.
 """
 from __future__ import annotations
 
@@ -44,6 +45,7 @@ from .replay_report import ReportRefused, render_json, render_text, report_from_
 from .replay_rpc import CostModel
 from .risk import RULES, PolicyConfig, assess
 from .ruledocs import explain_dict, explain_text, rules_markdown, rules_table
+from .sample import SampleConfig, check_roundtrip, render_csv, sample_ordinary, write_csv
 from .simulator import (
     AnvilSimulator,
     FixtureSimulator,
@@ -54,7 +56,8 @@ from .simulator import (
 )
 
 SUBCOMMANDS = ("review", "batch", "decode", "explain", "rules", "label", "mcp", "replay",
-               "replay-report")
+               "replay-report", "sample-ordinary")
+URL_FREE_COMMANDS = ("replay", "sample-ordinary")
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -118,6 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--rpc", default=None)
 
     _replay_parser(sub)
+    _sample_parser(sub)
 
     rr = sub.add_parser(
         "replay-report", allow_abbrev=False,
@@ -210,6 +214,57 @@ def _replay_parser(sub: Any) -> None:
                    help="stamp the results MOCK (done automatically for the in-repo fake node)")
     r.add_argument("--endpoint-label", default="rpc endpoint", metavar="TEXT",
                    help="how the results header names the endpoint (never the URL)")
+
+
+def _sample_parser(sub: Any) -> None:
+    r = sub.add_parser(
+        "sample-ordinary", allow_abbrev=False,
+        help="sample real swaps from a node into a case file labelled ordinary (endpoint from "
+             "an env var)",
+        description="Fetch random blocks from a node and write the swaps the decoder recognises "
+                    "to a CSV, every row labelled `ordinary`, for the false-positive half of a "
+                    "replay. 'ordinary' means nobody labelled the swap sandwiched, not that it "
+                    "was checked: some sampled swaps may have been attacked. The sample contains "
+                    "no sandwiched cases, so it cannot measure detection. The RPC URL is read "
+                    "from an environment variable and is never accepted as an argument or "
+                    "printed.")
+    r.add_argument("--out", default="cases-ordinary.csv", metavar="PATH",
+                   help="CSV to write (default: %(default)s); an existing file is not replaced "
+                        "unless --force")
+    r.add_argument("--force", action="store_true", help="replace --out if it exists")
+    r.add_argument("--count", type=int, default=60, metavar="N",
+                   help="swaps to collect (default: %(default)s)")
+    r.add_argument("--blocks", type=int, default=50_000, metavar="N",
+                   help="sample from a window of this many blocks (default: %(default)s, about "
+                        "a week of Ethereum mainnet)")
+    r.add_argument("--end-offset", type=int, default=256, metavar="BLOCKS",
+                   help="the window ends this many blocks behind the head (default: "
+                        "%(default)s)")
+    r.add_argument("--per-block", type=int, default=1, metavar="N",
+                   help="take at most N swaps from one block (default: %(default)s)")
+    r.add_argument("--max-blocks", type=int, default=400, metavar="N",
+                   help="fetch at most N blocks, then stop with what was found (default: "
+                        "%(default)s)")
+    r.add_argument("--seed", type=int, default=1, metavar="N",
+                   help="random seed; the same seed and window give the same sample "
+                        "(default: %(default)s)")
+    r.add_argument("--rpc-env", default="TXWARDEN_LIVE_RPC", type=_env_name, metavar="NAME",
+                   help="environment variable holding the endpoint URL (default: %(default)s)")
+    r.add_argument("--config", default=None, metavar="FILE",
+                   help="TOML simulator settings (its rpc_url is ignored)")
+    r.add_argument("--rps", type=float, default=10.0, metavar="R",
+                   help="requests per second ceiling (default: %(default)s)")
+    r.add_argument("--budget-calls", type=int, default=None, metavar="N",
+                   help="stop cleanly before sending more than N RPC requests")
+    r.add_argument("--budget-units", type=float, default=None, metavar="U",
+                   help="stop cleanly before spending more than U billing units")
+    r.add_argument("--cost-per-call", type=float, default=1.0, metavar="U",
+                   help="units per request (default: %(default)s); verify in the provider "
+                        "console")
+    r.add_argument("--timeout", type=float, default=30.0, metavar="SECONDS",
+                   help="per-request timeout (default: %(default)s)")
+    r.add_argument("--max-retries", type=int, default=5, metavar="N",
+                   help="retries per request on HTTP 429/5xx (default: %(default)s)")
 
 
 def _normalise_argv(argv: list[str]) -> list[str]:
@@ -535,6 +590,58 @@ def cmd_replay(a: argparse.Namespace, out: Any) -> int:
     return outcome.exit_code
 
 
+def cmd_sample_ordinary(a: argparse.Namespace, out: Any) -> int:
+    redactor = Redactor()
+    try:
+        url = endpoint_from_env(a.rpc_env)
+        redactor = Redactor(url)
+        cfg = SampleConfig(
+            count=a.count, blocks=a.blocks, end_offset=a.end_offset, per_block=a.per_block,
+            max_blocks=a.max_blocks, seed=a.seed, rps=a.rps, budget_calls=a.budget_calls,
+            budget_units=a.budget_units, costs=CostModel(per_call=a.cost_per_call),
+            max_retries=a.max_retries)
+        cfg.validate()
+        if not a.timeout > 0:
+            raise ReplayError("--timeout must be positive")
+        for name in ("budget_calls", "budget_units", "max_retries"):
+            value = getattr(cfg, name)
+            if value is not None and value < 0:
+                raise ReplayError(f"--{name.replace('_', '-')} must not be negative")
+        if Path(a.out).exists() and not a.force:
+            raise ReplayError(f"{a.out} already exists; choose another --out or pass --force")
+        app = _config(a)
+        print(f"endpoint: {redact_url(url)} (from ${a.rpc_env})", file=out)
+        outcome = sample_ordinary(
+            http_transport(url, timeout=a.timeout), cfg, app.simulator, redactor,
+            log=lambda m: print(redactor.scrub(m), file=out, flush=True))
+        if outcome.rows:
+            text = render_csv(cfg, outcome)
+            check_roundtrip(text)
+            path = write_csv(a.out, text, force=a.force)
+            print(f"wrote {len(outcome.rows)} ordinary cases to {path}", file=out)
+    except (ReplayError, ConfigError) as e:
+        print(f"error: {redactor.scrub(e)}", file=sys.stderr)
+        return 3
+    except KeyboardInterrupt:
+        print("error: interrupted; nothing was written", file=sys.stderr)
+        return 4
+    except Exception as e:  # never let a traceback (which may quote the URL) reach the terminal
+        print(f"error: {redactor.exception(e)}", file=sys.stderr)
+        return 1
+    if outcome.mock:
+        print("MOCK: the endpoint is the in-repo fake node; these hashes do not exist on any "
+              "real chain", file=out)
+    print(f"{outcome.stopped}: {len(outcome.rows)} of {a.count} swaps from {outcome.blocks_fetched} "
+          f"blocks ({outcome.swaps_seen} recognised swaps seen); {outcome.calls} RPC requests, "
+          f"{outcome.units:g} units", file=out)
+    if outcome.message:
+        print(redactor.scrub(outcome.message), file=out)
+    if outcome.rows:
+        print("These cases are labelled ordinary because nobody labelled them sandwiched; they "
+              "are not verified clean. They cannot measure detection.", file=out)
+    return outcome.exit_code
+
+
 def cmd_replay_report(a: argparse.Namespace, out: Any) -> int:
     from .replay import mock_stamped
 
@@ -560,8 +667,9 @@ def cmd_replay_report(a: argparse.Namespace, out: Any) -> int:
 
 
 def _refuses_url_argument(argv: list[str]) -> bool:
-    """True for ``replay`` invoked with something that looks like an RPC URL or an --rpc flag."""
-    return bool(argv) and argv[0] == "replay" and any(
+    """True for ``replay`` / ``sample-ordinary`` given something that looks like an RPC URL or an
+    --rpc flag."""
+    return bool(argv) and argv[0] in URL_FREE_COMMANDS and any(
         "://" in t or t == "--rpc" or t.startswith("--rpc=") for t in argv[1:])
 
 
@@ -569,15 +677,15 @@ def main(argv: list[str] | None = None, out: Any = None) -> int:
     out = out or sys.stdout
     argv = _normalise_argv(list(sys.argv[1:] if argv is None else argv))
     if _refuses_url_argument(argv):
-        print("error: replay does not take an RPC URL on the command line (it would land in shell "
-              "history and process listings). Put the URL in an environment variable "
+        print(f"error: {argv[0]} does not take an RPC URL on the command line (it would land in "
+              "shell history and process listings). Put the URL in an environment variable "
               "(default TXWARDEN_LIVE_RPC, or choose one with --rpc-env NAME).", file=sys.stderr)
         return 3
     parser = build_parser()
     a, extra = parser.parse_known_args(argv)
     if extra:
-        if a.cmd == "replay":  # a mistyped flag may sit next to a pasted key: say nothing about it
-            print("error: replay: unrecognized arguments (not shown). See `txwarden replay "
+        if a.cmd in URL_FREE_COMMANDS:  # a mistyped flag may sit next to a pasted key: say nothing
+            print(f"error: {a.cmd}: unrecognized arguments (not shown). See `txwarden {a.cmd} "
                   "--help`; the endpoint is read from an environment variable.", file=sys.stderr)
             raise SystemExit(2)
         parser.error("unrecognized arguments: " + " ".join(extra))
@@ -587,7 +695,7 @@ def main(argv: list[str] | None = None, out: Any = None) -> int:
     handler = {
         "review": cmd_review, "batch": cmd_batch, "decode": cmd_decode, "explain": cmd_explain,
         "rules": cmd_rules, "label": cmd_label, "mcp": cmd_mcp, "replay": cmd_replay,
-        "replay-report": cmd_replay_report,
+        "replay-report": cmd_replay_report, "sample-ordinary": cmd_sample_ordinary,
     }[a.cmd]
     try:
         return handler(a, out)

@@ -507,3 +507,115 @@ def test_cli_points_at_the_mock_stamped_file_when_the_plain_name_does_not_exist(
 def test_report_table_rows_have_no_trailing_spaces(tmp_path):
     text = render_text(report_from_file(write(tmp_path, population())))
     assert all(line == line.rstrip() for line in text.splitlines())
+
+
+# --------------------------------------------------------------------------- one label absent
+
+def only_ordinary(ordi=(28, 3, 2), unsupported=4, errors=1, **extra):
+    """An ordinary-only results file, as `txwarden sample-ordinary` + `replay` produce."""
+    recs = population(sand=(0, 0, 0), ordi=ordi, unsupported=(0, unsupported), errors=(0, errors))
+    for r in recs:
+        r.update(extra)
+    n = len(recs)
+    return recs, header(case_counts={"sandwiched": 0, "ordinary": n})
+
+
+def test_an_ordinary_only_file_reports_false_positives_and_not_detection(tmp_path):
+    recs, hdr = only_ordinary()
+    rep = report_from_file(write(tmp_path, recs, hdr))
+    assert rep.absent == frozenset({"sandwiched"}) and rep.small_sample is False
+    o = rep.labels["ordinary"]
+    assert (o.analysed, o.flagged, o.blocked) == (33, 5, 2)
+    text = render_text(rep)
+    assert "sandwiched NOT MEASURED" in rep.title
+    assert "NOT MEASURED: the case file has no sandwiched cases" in text
+    assert "5/33 = 15.2%" in text
+    assert "(not measured: no sandwiched cases)" in text
+
+
+def test_the_absent_label_never_gets_a_rate_anywhere(tmp_path):
+    recs, hdr = only_ordinary()
+    rep = report_from_file(write(tmp_path, recs, hdr))
+    data = json.loads(render_json(rep))
+    assert data["not_measured"] == ["sandwiched"]
+    assert data["headline"]["detection_warn_or_block"] is None
+    assert data["headline"]["detection_block_only"] is None
+    assert data["headline"]["false_positive_warn_or_block"]["n"] == 33
+    text = render_text(rep)
+    detection = text.split("Detection on cases labelled sandwiched")[1].split("False positives")[0]
+    assert "Wilson" not in detection and "n/a" not in detection
+
+
+def test_only_the_present_label_has_to_reach_thirty(tmp_path):
+    recs, hdr = only_ordinary(ordi=(20, 3, 2))
+    with pytest.raises(ReportRefused) as e:
+        report_from_file(write(tmp_path, recs, hdr))
+    assert "ordinary: 25" in str(e.value) and "sandwiched" not in str(e.value)
+    assert report_from_file(write(tmp_path, recs, hdr, name="s.jsonl"), allow_small=True
+                            ).small_sample is True
+
+
+def test_without_case_counts_in_the_header_both_labels_are_still_required(tmp_path):
+    recs, _ = only_ordinary()
+    with pytest.raises(ReportRefused, match="sandwiched: 0"):
+        report_from_file(write(tmp_path, recs, header()))
+
+
+def test_a_sandwiched_only_file_says_false_positives_were_not_measured(tmp_path):
+    recs = population(sand=(20, 8, 4), ordi=(0, 0, 0), unsupported=(3, 0), errors=(1, 0))
+    hdr = header(case_counts={"sandwiched": len(recs), "ordinary": 0})
+    rep = report_from_file(write(tmp_path, recs, hdr))
+    assert rep.absent == frozenset({"ordinary"})
+    text = render_text(rep)
+    assert "NOT MEASURED: the case file has no ordinary cases" in text
+    assert "(not measured: no ordinary cases)" in text
+    assert "12/32 = 37.5%" in text
+
+
+def test_both_labels_present_is_unchanged(tmp_path):
+    recs = population()
+    hdr = header(case_counts={"sandwiched": 38, "ordinary": 34})
+    rep = report_from_file(write(tmp_path, recs, hdr))
+    assert rep.absent == frozenset() and "NOT MEASURED" not in render_text(rep)
+    assert json.loads(render_json(rep))["not_measured"] == []
+
+
+def test_sampled_ordinary_cases_get_the_caveat_and_others_do_not(tmp_path):
+    recs, hdr = only_ordinary(source="rpc-sample seed=1 window=1-400 head=1000 per_block=1")
+    rep = report_from_file(write(tmp_path, recs, hdr))
+    text = render_text(rep)
+    assert rep.sampled_ordinary is True
+    assert "sampled from the chain" in text and "nobody checked" in text
+    assert json.loads(render_json(rep))["sampled_ordinary"] is True
+    plain_recs, plain_hdr = only_ordinary(source="a dataset")
+    plain = report_from_file(write(tmp_path, plain_recs, plain_hdr, name="p.jsonl"))
+    assert plain.sampled_ordinary is False and "sampled from the chain" not in render_text(plain)
+
+
+def test_a_sandwiched_case_is_never_called_sampled(tmp_path):
+    recs = population()
+    for r in recs:
+        if r["label"] == "sandwiched":
+            r["source"] = "rpc-sample seed=1"
+    rep = report_from_file(write(tmp_path, recs, header(case_counts={"sandwiched": 38,
+                                                                      "ordinary": 34})))
+    assert rep.sampled_ordinary is False
+
+
+def test_status_says_not_measured_for_the_absent_label_and_flags_sampling(tmp_path):
+    d = tmp_path / "results"
+    d.mkdir()
+    recs, hdr = only_ordinary(source="rpc-sample seed=1")
+    write(d, recs, hdr, name="replay.jsonl")
+    text = status_markdown(d)
+    assert "sandwiched cases: **not measured** (none in the case file)" in text
+    assert "5/33 (15.2%, 95% interval" in text
+    assert "sampled from the chain, not verified clean" in text
+    assert "n/a" not in text and "SMALL SAMPLE" not in text
+
+
+def test_cli_renders_an_ordinary_only_report_without_flags(tmp_path):
+    recs, hdr = only_ordinary()
+    code, out, err = cli("replay-report", str(write(tmp_path, recs, hdr)))
+    assert code == 0, err
+    assert "sandwiched NOT MEASURED" in out
