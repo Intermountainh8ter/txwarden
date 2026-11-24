@@ -5,6 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Fixed
+- **False CRITICAL `HONEYPOT_SELL_REVERTS` (BLOCK) on tokens that sell fine.** The honeypot probe
+  turned the amount it had just bought into a `float` and sold `int(float(amount))`. Above 2**53
+  (every 18-decimal token, for any realistic buy) that rounds up about half the time, so the
+  simulated sell asked for more tokens than the sender held and the router reverted with
+  `TRANSFER_FROM_FAILED`, which the rule reported as a honeypot. The approve and sell amounts are
+  now the exact on-chain integer. Found by the first replay against a real node: of 17 analysed
+  swaps from recent mainnet blocks, 2 were flagged this way, and other addresses were selling both
+  tokens on chain at the time; re-running both swaps with the fix removes the flag. The in-repo
+  fake chain could not show this because its quotes use float math, so every simulated balance was
+  already exactly representable; `TokenState.buy_dust` in `tests/helpers.py` now lets a test
+  credit a balance a float cannot hold, and two regression tests fail without the fix.
+
 ### Added
 - `txwarden sample-ordinary`: draws random real swaps from a node (random blocks in a window
   that ends behind the head, full transactions, swaps the decoder recognises) into a case file

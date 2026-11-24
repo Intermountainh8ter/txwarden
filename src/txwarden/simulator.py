@@ -636,14 +636,20 @@ class AnvilSimulator:
             return HoneypotProbe("simulate", False, False, float(value), 0.0, 0.0, 0.0,
                                  note=f"buy reverted: {reason}")
         quoted = float(decode(["uint256[]"], buy_res["returnData"])[0][-1])
-        bought = float(_uint(post.get("returnData", "0x")) - _uint(pre.get("returnData", "0x")))
+        # The amount the sell must spend is an exact on-chain integer. Never route it through a
+        # float: above 2**53 a float cannot hold most integers, ``int(float(n))`` rounds up about
+        # half the time, and selling more than the balance reverts with TRANSFER_FROM_FAILED,
+        # which would be reported as a honeypot on a token that sells fine. (Found by the first
+        # replay against a real node.) The float ``bought`` is for reporting and ratios only.
+        bought_raw = max(0, _uint(post.get("returnData", "0x")) - _uint(pre.get("returnData", "0x")))
+        bought = float(bought_raw)
         buy_tax = max(0.0, 1.0 - bought / quoted) if quoted > 0 else 0.0
         approve = {"from": sender, "to": token, "data": encode_call(
-            "approve(address,uint256)", [router, int(bought)])}
+            "approve(address,uint256)", [router, bought_raw])}
 
         def sell_call(sig: str) -> dict[str, Any]:
             return {"from": sender, "to": router, "data": encode_call(
-                sig, [int(bought), 0, [token, weth], sender, FAR_DEADLINE])}
+                sig, [bought_raw, 0, [token, weth], sender, FAR_DEADLINE])}
 
         sell = sell_call("swapExactTokensForETH(uint256,uint256,address[],address,uint256)")
         try:

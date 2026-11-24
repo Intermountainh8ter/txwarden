@@ -261,6 +261,42 @@ def test_honest_token_round_trip_loses_only_fees():
     assert hp.returned < hp.amount_in
 
 
+def _float_rounds_up(n: int) -> bool:
+    return int(float(n)) > n
+
+
+def _chain_where_float_rounds_the_bought_amount_up() -> tuple[FakeChain, int]:
+    """A chain whose buy credits an amount for which ``int(float(amount)) > amount``."""
+    probe_value = SimulatorOptions().probe_value_wei
+    for dust in range(1, 4096):
+        c = basic_chain()
+        c.tokens[TOKEN].balances.pop(U, None)  # a first-time buyer holds none of the token
+        c.tokens[TOKEN].buy_dust = dust
+        bought = c._quote(probe_value, [WETH, TOKEN])[-1] + dust
+        if _float_rounds_up(bought):
+            return c, bought
+    raise AssertionError("no dust value makes the float round-trip round up")
+
+
+def test_probe_sells_exactly_what_it_bought_when_a_float_would_round_up():
+    """Regression, found by the first replay against a real node: the probe turned the bought
+    amount into a float and sold ``int(float(bought))``. Above 2**53 that rounds up about half the
+    time, so the sell asked for more tokens than the sender held and the router reverted with
+    TRANSFER_FROM_FAILED, which was reported as a CRITICAL honeypot on a token that sells fine."""
+    c, bought = _chain_where_float_rounds_the_bought_amount_up()
+    assert bought > 2**53 and _float_rounds_up(bought)  # the premise of the test
+    hp = sim_for(c).simulate(buy_tx()).honeypot
+    assert hp.buy_ok and hp.sell_ok, hp.sell_revert_reason
+    assert hp.sell_revert_reason is None
+
+
+def test_probe_sells_exactly_what_it_bought_on_the_fee_on_transfer_path_too():
+    c, _ = _chain_where_float_rounds_the_bought_amount_up()
+    c.tokens[TOKEN].sell_tax = 0.10  # the plain sell reverts (K), so the FoT sell is used
+    hp = sim_for(c).simulate(buy_tx()).honeypot
+    assert hp.buy_ok and hp.sell_ok, hp.sell_revert_reason
+
+
 def test_honeypot_sell_reverts_in_both_sell_variants():
     c = basic_chain()
     c.tokens[TOKEN].honeypot = True

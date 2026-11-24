@@ -243,7 +243,7 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**1240 tests** run by default, plus 7 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set (the replay smoke test also needs `TXWARDEN_LIVE_REPLAY_CASES`).
+**1242 tests** run by default, plus 7 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set (the replay smoke test also needs `TXWARDEN_LIVE_REPLAY_CASES`).
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
