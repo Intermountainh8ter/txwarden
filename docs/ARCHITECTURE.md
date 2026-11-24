@@ -28,7 +28,7 @@ an explainer, but nothing the model does is an input to the verdict.
 | `abi.py` | ABI codec and calldata decoder | static/dynamic types, nested tuples and arrays; selector registry (67 selectors); Universal Router command table (31); never raises on hostile input (returns `kind="malformed"`) |
 | `effects.py` | Static effects of a decoded call | approvals, operator approvals, permits, transfers, swap and liquidity intents, who receives output; `trace_transfers` finds token pulls inside a call tree |
 | `models.py` | Plain dataclasses | `Tx`, `SimResult`, `Finding`, call frames; JSON round-trippable so simulations can be recorded and replayed |
-| `simulator.py` | Backends | `AnvilSimulator` (JSON-RPC), `FixtureSimulator` (tests/evals), `StaticSimulator` (no RPC); `RecordingTransport` / `replay_transport` for sessions |
+| `simulator.py` | Backends | `AnvilSimulator` (JSON-RPC; `block=` pins every state read to a block), `FixtureSimulator` (tests/evals), `StaticSimulator` (no RPC); `RecordingTransport` / `replay_transport` for sessions; `http_transport` never puts the endpoint URL in a message |
 | `amm.py`, `amm_v3.py` | Pool math | constant product (single and multi-hop) and Uniswap V3 with tick crossing; price impact; sandwich estimation (bisect the largest admissible front-run, then maximise profit) |
 | `rules.py` | The rule registry | id, severity, category, description, operator docs, policy knobs. Data only |
 | `risk.py` | The engine | `PolicyConfig`; `compute_facts` (expensive, policy independent); 18 check functions; `assess` |
@@ -38,6 +38,10 @@ an explainer, but nothing the model does is an input to the verdict.
 | `agent.py`, `llm.py` | Optional explainer | tool-using agent; `AnthropicLLM` is an optional extra, `ScriptedLLM` is the test double |
 | `cli.py`, `mcp_server.py` | Interfaces | `txwarden ...`; MCP server over stdio without an SDK |
 | `ruledocs.py` | Documentation generator | `txwarden explain`, `docs/RULES.md`, README rule table |
+| `replay.py` | Historical replay | case-file loader (`tx_hash`, `label`), the runner (`txwarden replay`: transaction -> pinned simulation -> verdict -> one results line), results files, reason codes |
+| `replay_rpc.py` | Replay RPC plumbing | token-bucket rate limit, exponential backoff, per-request unit costs and budgets, on-disk cache keyed by (method, params, pinned block) |
+| `replay_report.py` | Replay statistics | Wilson intervals, headline rates computed from a results file alone, the MOCK / small-sample refusals, the README status text |
+| `redact.py` | Credential redaction | `redact_url` (scheme and host only) and `Redactor` (removes every piece of a known endpoint URL from text) |
 
 ## Data flow in one review
 
@@ -59,6 +63,33 @@ an explainer, but nothing the model does is an input to the verdict.
 6. **Verdict.** CRITICAL -> BLOCK, HIGH -> WARN, otherwise ALLOW; the worst finding decides.
 7. **Bundles.** `batch.assess_bundle` does steps 1-6 per transaction, then looks across them
    (approve then pull, add then remove liquidity, cumulative drain, mixed chain ids).
+
+## Historical replay
+
+`txwarden replay` runs the same pipeline over labelled historical transactions, with one change:
+the simulator is pinned (`AnvilSimulator(block=N-1)`) to the state at the end of the block before
+the one that mined the transaction. For each case it reads the transaction from the node, skips
+what the decoder cannot call a swap, simulates, assesses, and appends one line to a results file.
+
+* **A case is analysed or it is not; it is never half counted.** Anything that stops a clean
+  analysis (not a swap, no pool state, a revert at the pinned block, a missing transaction, any
+  failed RPC call, even in an optional probe) is recorded as `unsupported` or `error` with a
+  reason code and no verdict. The report counts only analysed cases in a rate and shows the rest as
+  denominators.
+* **Cost is controlled at the transport.** Every attempt, retries included, passes through the
+  budget check, the token bucket and the counter; a response cache keyed by (method, params,
+  pinned block) makes reruns free. `BudgetExceeded` is deliberately not a `RuntimeError` so the
+  simulator's tolerance for failing optional probes cannot swallow it.
+* **The endpoint URL is a secret.** It is read from an environment variable, shown only as
+  `scheme://host`, and scrubbed from every message, result and cache file; `http_transport`
+  already names only the host in its errors.
+* **MOCK is a property of the data.** The in-repo fake node announces itself in
+  `web3_clientVersion`; results from it are stamped MOCK in the header and the file name and the
+  report refuses them.
+
+The approximation is stated in the docs of `AnvilSimulator`: state at the end of block `N-1` does
+not contain the attacker's front-run or anything else earlier in block `N`. See
+[LIVE_REPLAY.md](LIVE_REPLAY.md).
 
 ## Trust boundaries
 
@@ -84,6 +115,8 @@ an explainer, but nothing the model does is an input to the verdict.
 | The model never calls `assess_risk`, or the tool errors | BLOCK | `agent.TxWardenAgent.review` |
 | MCP tool raises | `isError: true` and `"verdict": "BLOCK"` | `mcp_server.call_tool` |
 | Language model unavailable | deterministic verdict still printed, with a note | `cli.cmd_review` |
+| Replay case that cannot be analysed (not a swap, no pool state, revert at the pinned block, any failed RPC call) | recorded `unsupported` / `error`, no verdict, excluded from every rate | `replay.Replayer.analyse` |
+| Replay budget spent | stop before the request that would exceed it; the case in progress is not recorded | `replay_rpc.Budget`, `replay.Replayer._loop` |
 | `disabled_rules` names an unknown rule or a fail-closed rule | configuration error | `PolicyConfig.__post_init__` |
 
 The converse is also deliberate: a revert is a HIGH finding (WARN), not a BLOCK, because a

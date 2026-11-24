@@ -2,6 +2,9 @@
 
     TXWARDEN_LIVE_RPC=https://<your mainnet or mainnet-fork endpoint> pytest -m live -v
 
+Set ``TXWARDEN_LIVE_REPLAY_CASES`` to a labelled case file (see docs/LIVE_REPLAY.md) as well to
+run the replay smoke test, which analyses the first three cases within a small request budget.
+
 They assume Ethereum mainnet (chain id 1) and only use read-only ``eth_call`` / ``eth_estimateGas``
 from a well-known funded address, so nothing is sent. Optional node features (``debug_traceCall``,
 ``eth_simulateV1``) are allowed to be missing; the assertions below do not depend on them.
@@ -25,6 +28,10 @@ from txwarden.simulator import AnvilSimulator, http_transport
 RPC = os.environ.get("TXWARDEN_LIVE_RPC")
 pytestmark = [pytest.mark.live,
               pytest.mark.skipif(not RPC, reason="set TXWARDEN_LIVE_RPC to a mainnet endpoint")]
+
+REPLAY_CASES = os.environ.get("TXWARDEN_LIVE_REPLAY_CASES")
+needs_cases = pytest.mark.skipif(not REPLAY_CASES,
+                                 reason="set TXWARDEN_LIVE_REPLAY_CASES to a labelled case file")
 
 RICH = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"  # a famous, well-funded mainnet address
 ROUTER = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
@@ -96,3 +103,41 @@ def test_reverting_call_is_reported_with_the_nodes_reason(sim):
     data = encode_call("transferFrom(address,address,uint256)", [WETH, RICH, 10**30])
     res = sim.simulate(Tx(RICH.lower(), USDC.lower(), data))
     assert not res.success and res.error is None and res.revert_reason
+
+
+@needs_cases
+def test_replay_smoke_analyses_the_first_cases_within_a_small_budget(tmp_path):
+    """Structure, not statistics: three real cases go through the whole replay path, the results
+    file is well formed, nothing is counted without a verdict, and the endpoint URL appears in no
+    file the run wrote. Cases that cannot be analysed are fine; an endpoint that cannot serve
+    archive state skips the test rather than failing it."""
+    from txwarden.redact import Redactor
+    from txwarden.replay import (
+        STATUSES,
+        ReplayConfig,
+        Replayer,
+        endpoint_from_env,
+        load_cases,
+        read_results,
+    )
+    from txwarden.simulator import SimulatorOptions
+
+    url = endpoint_from_env("TXWARDEN_LIVE_RPC")
+    cases = load_cases(REPLAY_CASES)
+    cfg = ReplayConfig(out_path=tmp_path / "live.jsonl", cache_dir=tmp_path / "cache", limit=3,
+                       rps=5.0, budget_calls=400, max_consecutive_errors=3)
+    out = Replayer(cases, http_transport(url), cfg, PolicyConfig(), SimulatorOptions(),
+                   Redactor(url)).run()
+    results = read_results(out.out_path)
+    assert results.header and results.header["format"] == "txwarden-replay/1"
+    assert 1 <= len(results.cases) <= 3 and not results.problems
+    for rec in results.cases.values():
+        assert rec["status"] in STATUSES and rec["label"] in ("sandwiched", "ordinary")
+        assert (rec["verdict"] is not None) == (rec["status"] == "analysed"), rec
+        assert rec["rpc_calls"] >= 1 and rec["units"] >= rec["rpc_calls"]
+    for path in [out.out_path, *(tmp_path / "cache").rglob("*.json")]:
+        text = str(path.relative_to(tmp_path)) + path.read_text()
+        for piece in (url, url.split("//", 1)[-1].split("/", 1)[-1]):
+            assert len(piece) < 8 or piece not in text
+    if all(r.get("reason_code") == "archive_state_unavailable" for r in results.cases.values()):
+        pytest.skip("this endpoint cannot serve historical state; replay needs an archive plan")
