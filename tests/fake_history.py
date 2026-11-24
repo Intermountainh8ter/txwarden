@@ -104,9 +104,14 @@ class HistoricalChain:
         number = self.resolve(tag)
         state = self.state_at(number)
         if method == "eth_getBlockByNumber":
-            return {"number": hex(number),
-                    "timestamp": hex(state.timestamp + (number - max(
-                        b for b in self.states if b <= number)) * BLOCK_TIME)}
+            block: dict[str, Any] = {
+                "number": hex(number),
+                "timestamp": hex(state.timestamp + (number - max(
+                    b for b in self.states if b <= number)) * BLOCK_TIME)}
+            if len(params) > 1 and params[1] is True:  # full transaction objects, like a real node
+                block["transactions"] = [dict(t) for t in self.txs.values()
+                                         if t.get("blockNumber") == hex(number)]
+            return block
         return state.rpc(method, params)
 
     # ---- inspection

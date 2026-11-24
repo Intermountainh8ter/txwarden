@@ -116,6 +116,40 @@ Check the file without touching the network:
 txwarden replay cases.csv --validate-only
 ```
 
+#### No labelled sandwiches yet? Sample ordinary swaps for a false-positive run
+
+If you cannot get labelled sandwiched hashes, `sample-ordinary` draws real swaps from the node
+itself and writes a case file in which every row is labelled `ordinary`:
+
+```bash
+txwarden sample-ordinary --count 60 --out cases-ordinary.csv --budget-calls 1000
+txwarden replay cases-ordinary.csv --validate-only
+```
+
+It reads the endpoint from the same environment variable as `replay` (there is no URL flag),
+picks blocks at random from a window of `--blocks` blocks (default 50,000, about a week) that ends
+`--end-offset` blocks (default 256) behind the head, fetches each with its full transactions, and
+keeps up to `--per-block` swaps the decoder recognises from each. Each fetched block is one
+request. The seed, window and head block are written into every row's `source`, so the same
+command against the same chain gives the same sample. An existing output file is not replaced
+without `--force`.
+
+What this gives you and what it does not:
+
+* **It measures false positives only.** The file contains no sandwiched cases, so the report says
+  `sandwiched NOT MEASURED` and prints no detection rate. It does not tell you the engine catches
+  sandwiches.
+* **"Ordinary" is unverified.** Nobody checked these swaps. Some will have been sandwiched, and
+  if the engine flags one of those the report counts a false positive. The false-positive rate
+  from a sample can therefore be overstated by an amount this tool cannot estimate, and the
+  report says so whenever the cases came from `sample-ordinary`.
+* **Uniform over blocks, not over swaps.** A swap in a busy block is less likely to be drawn than
+  one in a quiet block. Ordinary swaps and the sandwiched ones you may add later should be drawn
+  from the same period, router and pool mix, or the comparison measures that difference.
+* **Add sandwiched cases later by appending rows** to the file (or a second file) from a source
+  you trust; the report then shows both halves, and 30 analysable cases per label are needed
+  before it prints a headline.
+
 ### 4. Calibrate with `--estimate`
 
 ```bash
@@ -184,7 +218,8 @@ is the one place they belong in this repository.
 * **Refusals.** Results written against the in-repo fake node carry `mock` in their header and
   are refused unless `--allow-mock` (and then stamped MOCK in the title and file name). Fewer than
   30 analysable cases for either label is refused unless `--allow-small` (stamped SMALL SAMPLE).
-  A file without a header is refused because it cannot be told apart from a fake.
+  A label with no cases in the case file at all is not refused: it is reported as NOT MEASURED,
+  with no rate. A file without a header is refused because it cannot be told apart from a fake.
 
 ## What the numbers do not show
 

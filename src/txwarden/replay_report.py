@@ -10,8 +10,10 @@ Refusals (exit code 3 from the CLI):
 
 * a results file written against the in-repo fake node (``mock`` in its header) unless
   ``allow_mock``: those numbers describe the fake, not Ethereum;
-* fewer than ``MIN_CASES`` analysable cases for either label unless ``allow_small``, in which
-  case every output is stamped SMALL SAMPLE;
+* fewer than ``MIN_CASES`` analysable cases for any label the case file contains, unless
+  ``allow_small``, in which case every output is stamped SMALL SAMPLE. A label with no cases in
+  the case file at all (an ordinary-only sample, say) is reported as NOT MEASURED, never as a
+  rate;
 * a file with no readable header, or none of this format.
 """
 from __future__ import annotations
@@ -94,10 +96,13 @@ class Report:
     rpc_calls: int
     units: float
     problems: list[str]
+    absent: frozenset[str] = frozenset()  # labels the case file has no cases for: not measured
+    sampled_ordinary: bool = False  # some ordinary cases came from `txwarden sample-ordinary`
 
     @property
     def title(self) -> str:
         stamps = (["MOCK"] if self.mock else []) + (["SMALL SAMPLE"] if self.small_sample else [])
+        stamps += [f"{label} NOT MEASURED" for label in sorted(self.absent)]
         return "TxWarden replay report" + "".join(f" - {s}" for s in stamps)
 
     def output_path(self, path: str | Path) -> Path:
@@ -134,6 +139,8 @@ def build_report(results: ResultsFile, *, allow_mock: bool = False,
 
     expected = header.get("case_counts") or {}
     stats = {label: LabelStats(label, expected.get(label)) for label in LABELS}
+    absent = frozenset(label for label in LABELS if expected.get(label) == 0)
+    sampled_ordinary = False
     alerting: set[str] = set()
     missed: list[dict[str, Any]] = []
     flagged_ordinary: list[dict[str, Any]] = []
@@ -145,6 +152,8 @@ def build_report(results: ResultsFile, *, allow_mock: bool = False,
             problems.append(f"{h}: unknown label {str(rec.get('label'))[:20]!r}; ignored")
             continue
         s.recorded += 1
+        if s.label == "ordinary" and str(rec.get("source") or "").startswith("rpc-sample"):
+            sampled_ordinary = True
         calls += int(rec.get("rpc_calls") or 0)
         units += float(rec.get("units") or 0)
         status, verdict = rec.get("status"), rec.get("verdict")
@@ -164,16 +173,17 @@ def build_report(results: ResultsFile, *, allow_mock: bool = False,
             s.invalid += 1  # never counted either way
             problems.append(f"{h}: record is neither a valid analysis nor a reasoned "
                             "unsupported/error; excluded from every rate")
-    small = any(s.analysed < MIN_CASES for s in stats.values())
+    measured = {label: s for label, s in stats.items() if label not in absent}
+    small = any(s.analysed < MIN_CASES for s in measured.values())
     if small and not allow_small:
-        counts = ", ".join(f"{label}: {s.analysed}" for label, s in stats.items())
+        counts = ", ".join(f"{label}: {s.analysed}" for label, s in measured.items())
         raise ReportRefused(
             f"{results.path}: refusing to render a headline. Each label needs at least "
             f"{MIN_CASES} analysable cases and this file has {counts}. Run more cases (cases "
             "that are unsupported or errored do not count), or pass --allow-small to render it "
             "stamped SMALL SAMPLE.")
     return Report(results.path, header, mock, small, stats, alerting, missed, flagged_ordinary,
-                  calls, units, problems)
+                  calls, units, problems, absent, sampled_ordinary)
 
 
 # --------------------------------------------------------------------------- rendering
@@ -208,6 +218,12 @@ LIMITS = (
     "  - Thresholds are the author's defaults and were not tuned on these cases.",
 )
 
+SAMPLED_LIMIT = (
+    "  - The ordinary cases were sampled from the chain by `txwarden sample-ordinary`; nobody "
+    "checked that they were not sandwiched. A flagged case may be a real attack, so the "
+    "false-positive rate may be overstated by an unknown amount, and sampling was uniform over "
+    "blocks rather than over swaps.")
+
 
 def render_text(rep: Report) -> str:
     h = rep.header
@@ -227,10 +243,13 @@ def render_text(rep: Report) -> str:
             ""]
     s, o = rep.labels["sandwiched"], rep.labels["ordinary"]
     out += ["Headline (analysable cases only)", "--------------------------------",
-            "Detection on cases labelled sandwiched",
-            _rate_line(s, s.flagged, "WARN or BLOCK"), _rate_line(s, s.blocked, "BLOCK only"),
-            "False positives on cases labelled ordinary",
-            _rate_line(o, o.flagged, "WARN or BLOCK"), _rate_line(o, o.blocked, "BLOCK only"), ""]
+            "Detection on cases labelled sandwiched"]
+    out += (["  NOT MEASURED: the case file has no sandwiched cases"] if "sandwiched" in rep.absent
+            else [_rate_line(s, s.flagged, "WARN or BLOCK"), _rate_line(s, s.blocked, "BLOCK only")])
+    out += ["False positives on cases labelled ordinary"]
+    out += (["  NOT MEASURED: the case file has no ordinary cases"] if "ordinary" in rep.absent
+            else [_rate_line(o, o.flagged, "WARN or BLOCK"), _rate_line(o, o.blocked, "BLOCK only")])
+    out.append("")
 
     out += ["Denominators: every case in the results file", "-----------------------------------------"]
     rows = [("label", "in file", "recorded", "analysed", "unsupported", "error", "invalid")]
@@ -276,16 +295,20 @@ def render_text(rep: Report) -> str:
 
     out += [f"Missed: sandwiched cases the engine allowed ({len(rep.missed)})",
             "--------------------------------------------------"]
-    out += [_case_line(c) for c in rep.missed] or ["  (none)"]
+    out += [_case_line(c) for c in rep.missed] or (
+        ["  (not measured: no sandwiched cases)"] if "sandwiched" in rep.absent else ["  (none)"])
     out += ["", f"False positives: ordinary cases flagged WARN or BLOCK ({len(rep.false_positives)})",
             "--------------------------------------------------------"]
-    out += [_case_line(c) for c in rep.false_positives] or ["  (none)"]
+    out += [_case_line(c) for c in rep.false_positives] or (
+        ["  (not measured: no ordinary cases)"] if "ordinary" in rep.absent else ["  (none)"])
     out.append("")
     if rep.problems:
         out += ["Problems found while reading the file", "-------------------------------------"]
         out += [f"  {p}" for p in rep.problems[:20]]
         out.append("")
     out += list(LIMITS)
+    if rep.sampled_ordinary:
+        out.append(SAMPLED_LIMIT)
     return "\n".join(out) + "\n"
 
 
@@ -301,10 +324,13 @@ def report_dict(rep: Report) -> dict[str, Any]:
     return {
         "title": rep.title, "mock": rep.mock, "small_sample": rep.small_sample,
         "min_cases": MIN_CASES, "results_file": Path(rep.path).name, "header": rep.header,
+        "not_measured": sorted(rep.absent), "sampled_ordinary": rep.sampled_ordinary,
         "headline": {
-            "detection_warn_or_block": s.rate(s.flagged), "detection_block_only": s.rate(s.blocked),
-            "false_positive_warn_or_block": o.rate(o.flagged),
-            "false_positive_block_only": o.rate(o.blocked),
+            "detection_warn_or_block": None if "sandwiched" in rep.absent else s.rate(s.flagged),
+            "detection_block_only": None if "sandwiched" in rep.absent else s.rate(s.blocked),
+            "false_positive_warn_or_block": None if "ordinary" in rep.absent
+            else o.rate(o.flagged),
+            "false_positive_block_only": None if "ordinary" in rep.absent else o.rate(o.blocked),
         },
         "labels": {label: {
             "expected": st.expected, "recorded": st.recorded, "analysed": st.analysed,
@@ -317,7 +343,8 @@ def report_dict(rep: Report) -> dict[str, Any]:
                   for r in sorted(set(s.rule_hits) | set(o.rule_hits))},
         "missed_sandwiched": rep.missed, "flagged_ordinary": rep.false_positives,
         "rpc_calls": rep.rpc_calls, "units": rep.units, "problems": rep.problems,
-        "limits": [x.strip(" -") for x in LIMITS[1:]],
+        "limits": [x.strip(" -") for x in LIMITS[1:]]
+        + ([SAMPLED_LIMIT.strip(" -")] if rep.sampled_ordinary else []),
     }
 
 
@@ -373,10 +400,16 @@ def status_markdown(results_dir: str | Path) -> str:
             lo, hi = r["wilson95"]
             return f"{k}/{r['n']} ({_pct(r['rate'])}, 95% interval {_pct(lo)} to {_pct(hi)})"
 
-        lines.append(
-            f"- `results/{p.name}`: sandwiched cases flagged WARN or BLOCK {fmt(s, s.flagged)}, "
-            f"{s.unsupported} unsupported and {s.error} error excluded; ordinary cases flagged "
-            f"WARN or BLOCK {fmt(o, o.flagged)}, {o.unsupported} unsupported and {o.error} "
-            "error excluded."
-            + (" **SMALL SAMPLE.**" if rep.small_sample else ""))
+        sand = ("sandwiched cases: **not measured** (none in the case file)"
+                if "sandwiched" in rep.absent else
+                f"sandwiched cases flagged WARN or BLOCK {fmt(s, s.flagged)}, "
+                f"{s.unsupported} unsupported and {s.error} error excluded")
+        ordi = ("ordinary cases: **not measured** (none in the case file)"
+                if "ordinary" in rep.absent else
+                f"ordinary cases flagged WARN or BLOCK {fmt(o, o.flagged)}, "
+                f"{o.unsupported} unsupported and {o.error} error excluded"
+                + (" (sampled from the chain, not verified clean)" if rep.sampled_ordinary
+                   else ""))
+        lines.append(f"- `results/{p.name}`: {sand}; {ordi}."
+                     + (" **SMALL SAMPLE.**" if rep.small_sample else ""))
     return "\n".join(lines)

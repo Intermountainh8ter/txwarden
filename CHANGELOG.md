@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 ## [Unreleased]
 
 ### Added
+- `txwarden sample-ordinary`: draws random real swaps from a node (random blocks in a window
+  that ends behind the head, full transactions, swaps the decoder recognises) into a case file
+  with every row labelled `ordinary`, for a false-positive-only replay when no labelled sandwiches
+  are available. Seeded and reproducible, request-budgeted, endpoint from the environment only,
+  refuses to overwrite its output without `--force`. The labels are unverified: some sampled swaps
+  may have been attacked.
+- `replay-report` reports a label with no cases in the case file as NOT MEASURED instead of
+  printing a rate or refusing, and notes when the ordinary cases were sampled rather than
+  labelled by a source.
 - **Block pinning.** `AnvilSimulator(block=...)` accepts `"latest"` (default, request bytes
   unchanged), an integer or a `0x` string and sends it with every state read (`eth_call`,
   `eth_estimateGas` when pinned, `eth_getBlockByNumber`, `eth_getCode`, `eth_getBalance`,
