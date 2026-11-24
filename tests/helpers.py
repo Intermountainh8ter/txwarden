@@ -50,6 +50,10 @@ class TokenState:
     sell_tax: float = 0.0  # fraction lost when selling
     honeypot: bool = False  # sells always revert
     revert_transfer: str | None = None
+    # raw units added to what a buy credits. The fake quote uses float math, so without this every
+    # simulated balance is an integer a float holds exactly; real balances are arbitrary integers
+    # (above 2**53 a float cannot represent most of them), and a test needs one of those.
+    buy_dust: int = 0
 
 
 @dataclass
@@ -229,7 +233,7 @@ class FakeChain:
                     amounts = self._quote(value, path)
                     token = path[-1].lower()
                     tok = self.tokens[token]
-                    got = int(amounts[-1] * (1 - tok.buy_tax))
+                    got = int(amounts[-1] * (1 - tok.buy_tax)) + tok.buy_dust
                     bals = sim_balances.setdefault(token, dict(tok.balances))
                     bals[sender] = bals.get(sender, 0) + got
                     ret = "0x" + encode(["uint256[]"], [amounts]).hex()
