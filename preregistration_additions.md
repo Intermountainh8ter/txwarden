@@ -98,3 +98,14 @@ Metric: /false_negative_rate/overall (FN = engine verdict ALLOW on a malicious c
 Expected: at least 0.30 (range 0.30 to 1.0).
 Falsifier: overall false-negative rate below 0.30 with the Wilson 95% upper bound under 0.30, or benign
 false-positive rate above 0.10.
+
+## 2026-11-27T10:44:00Z pooled-floors-fn-audit proposal:3fb995019155bf61f5b92a1e8eaf7dabd972ecaf61f3b082827dedaa824becaa
+
+Set: seeded SIMULATED constructed cases pooled from the shipped audit builders (7702 and Permit2,
+approval variants, intent swaps, ERC-4337 userops, Permit2 transfers), seed 7, n=40 per kind (no external data).
+Hypothesis: on the pooled set, the engine's Youden J (true-positive rate + true-negative rate - 1; BLOCK or
+WARN counts as flagged) is above 0 (both constant allow-all and deny-all floors score exactly 0) but at most
+0.50, because its pooled false-negative rate is at least 0.50 while its false-positive rate stays at most 0.05.
+Metric: /engine/youden_j.
+Expected: between 0.0 and 0.50, strictly above both floors.
+Falsifier: pooled J above 0.50, or pooled false-positive rate above 0.05, or J not above 0.

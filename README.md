@@ -235,7 +235,7 @@ by `scripts/update_readme.py` from real runs, and CI fails if they drift.
 ### Tests
 
 <!-- BEGIN test-count -->
-**753 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
+**756 tests** run by default, plus 6 opt-in live-RPC tests that are skipped unless `TXWARDEN_LIVE_RPC` is set.
 <!-- END test-count -->
 
 <!-- BEGIN coverage -->
@@ -349,6 +349,15 @@ paymaster); these are not real transactions. Unsafe-ALLOW false-negative rate on
 false-positive rate on matched benign cases is 0.0. The engine does not decode UserOperation
 callData, so none of these is flagged. Reproduce with
 `python3 evals/audit_userop_4337.py --seed 7 --out results/116-userop-4337-fn-audit.json`.
+
+### Pooled audit against constant floors (constructed, SIMULATED)
+
+`evals/audit_pooled_floors.py` pools the five seeded constructed sets above and scores the engine
+with Youden's J (true-positive rate + true-negative rate - 1; WARN or BLOCK counts as flagged)
+(results/645-pooled-floors-fn-audit.json): engine J 0.311, allow-all floor 0.0, deny-all floor 0.0.
+Pooled false-negative rate 0.636 (560 of 880); pooled false-positive rate 0.0526 (40 of 760), which
+is above the pre-registered limit of 0.05, so that part of the hypothesis is refuted. Reproduce with
+`python3 evals/audit_pooled_floors.py --seed 7 --out results/645-pooled-floors-fn-audit.json`.
 
 ### Approval-variant false-negative audit (constructed, SIMULATED)
 

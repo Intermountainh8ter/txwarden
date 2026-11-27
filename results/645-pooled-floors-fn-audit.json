@@ -1,0 +1,77 @@
+{
+  "engine": {
+    "by_source": {
+      "audit_7702_permit2": {
+        "n_benign": 120,
+        "n_malicious": 240,
+        "youden_j": 0.5
+      },
+      "audit_approval_variants": {
+        "n_benign": 200,
+        "n_malicious": 200,
+        "youden_j": 0.8
+      },
+      "audit_intent_swaps": {
+        "n_benign": 120,
+        "n_malicious": 120,
+        "youden_j": 0.0
+      },
+      "audit_permit2_transfers": {
+        "n_benign": 160,
+        "n_malicious": 160,
+        "youden_j": 0.0
+      },
+      "audit_userop_4337": {
+        "n_benign": 160,
+        "n_malicious": 160,
+        "youden_j": 0.0
+      }
+    },
+    "false_negative_rate": {
+      "k": 560,
+      "n": 880,
+      "rate": 0.6363636363636364,
+      "wilson95": [
+        0.6040510927364902,
+        0.6674907763042972
+      ]
+    },
+    "false_positive_rate": {
+      "k": 40,
+      "n": 760,
+      "rate": 0.05263157894736842,
+      "wilson95": [
+        0.03888680298233269,
+        0.07087626831412458
+      ]
+    },
+    "youden_j": 0.3110047846889952
+  },
+  "floors": {
+    "allow_all": {
+      "youden_j": 0.0
+    },
+    "deny_all": {
+      "youden_j": 0.0
+    }
+  },
+  "n_benign": 760,
+  "n_cases": 1640,
+  "n_malicious": 880,
+  "provenance": {
+    "command": "python3 evals/audit_pooled_floors.py --seed 7 --out results/645-pooled-floors-fn-audit.json",
+    "data_sources": [
+      {
+        "license": "MIT (component licence)",
+        "url": "constructed locally (no external data)"
+      }
+    ],
+    "hardware": "cpu",
+    "seeds": [
+      7
+    ],
+    "started_at": "2026-11-27T10:44:01Z",
+    "wall_s": 1.377
+  },
+  "set_label": "constructed, SIMULATED: not real transactions, not a public labelled release"
+}
